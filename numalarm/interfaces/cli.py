@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, List, Optional
@@ -337,6 +338,65 @@ def doctor() -> None:
     click.echo("\n全部通过：可以 numalarm test <目标> 校准后使用。")
 
 
+@cli.command()
+@click.option("--yes", "-y", is_flag=True, help="跳过确认，直接清理运行时残留与快捷方式")
+def uninstall(yes: bool) -> None:
+    """完全卸载清理：移除 Hook 注册、桌面快捷方式与运行时残留，实现零残留移除。
+
+    技能/仓库目录（含独立虚拟环境）与可选安装的虚拟声卡需按提示手动移除。
+    """
+    click.echo("== 牛马铃卸载清理 ==")
+
+    # 1) 宿主 Hook 注册
+    click.echo("\n[1/4] 宿主 Hook 注册")
+    _remove_numalarm_hooks([p for p in KNOWN_HOSTS.values() if p.is_file()])
+
+    # 2) 桌面快捷方式（仅 Windows）
+    click.echo("\n[2/4] 桌面快捷方式")
+    if sys.platform == "win32":
+        try:
+            import win32com.client
+
+            shell = win32com.client.Dispatch("WScript.Shell")
+            desktop = Path(shell.SpecialFolders("Desktop"))
+            found = []
+            for lnk in sorted(desktop.glob("*.lnk")):
+                try:
+                    args = shell.CreateShortCut(str(lnk)).Arguments or ""
+                    if "numalarm" in args:
+                        found.append(lnk)
+                except Exception:  # noqa: BLE001 单个解析失败跳过
+                    continue
+            if not found:
+                click.echo("未发现相关快捷方式")
+            for lnk in found:
+                if yes or click.confirm(f"删除快捷方式 {lnk.name}？", default=False):
+                    lnk.unlink()
+                    click.echo(f"已删除 {lnk.name}")
+        except ImportError:
+            click.echo("pywin32 未安装，跳过快捷方式清理")
+    else:
+        click.echo("非 Windows 平台，跳过")
+
+    # 3) 运行时残留（~/.numalarm：防抖状态与跨进程锁文件）
+    click.echo("\n[3/4] 运行时残留（~/.numalarm：防抖状态与锁文件）")
+    state_dir = ConfigManager.state_dir()
+    if any(state_dir.iterdir()):
+        if yes or click.confirm(f"删除 {state_dir}？", default=False):
+            shutil.rmtree(state_dir, ignore_errors=True)
+            click.echo("已清理")
+    else:
+        click.echo("无残留")
+
+    # 4) 手动步骤指引（均为可选安装项，未安装可忽略）
+    click.echo("\n[4/4] 以下组件请按需手动移除（删除后设备即零残留）：")
+    click.echo("- 技能/仓库目录：含独立虚拟环境（.venv）与配置，直接删除整个目录即可（建议最后删）")
+    click.echo("- 若曾执行 pip install -e .：运行 pip uninstall numalarm")
+    click.echo("- 若曾安装虚拟声卡 VB-Cable：先在声音设置切回真实麦克风/扬声器，"
+               "再到 Windows「设置 - 应用」卸载 VB-Audio Virtual Cable")
+    click.echo("\n完成：除上述手动项外，设备无任何残留。")
+
+
 def main() -> None:
     """CLI 入口（pyproject.toml console_scripts 指向此处）。"""
     cli()
@@ -464,13 +524,8 @@ def hook_install(hosts: Optional[str], settings_paths: tuple) -> None:
     click.echo("重启对应宿主会话后生效。移除：numalarm hook uninstall")
 
 
-@hook.command("uninstall")
-@click.option("--host", "hosts", default=None, help="目标宿主：workbuddy / claude / codebuddy / all；默认自动探测")
-@click.option("--settings", "settings_paths", multiple=True, type=click.Path(dir_okay=False, path_type=Path),
-              help="自定义宿主的 settings.json 路径，可多次传入；优先于 --host")
-def hook_uninstall(hosts: Optional[str], settings_paths: tuple) -> None:
-    """移除由 numalarm 注册的 hook（只删自身条目，其余配置原样保留）。"""
-    targets = _resolve_hook_targets(hosts, settings_paths)
+def _remove_numalarm_hooks(targets: List[Path]) -> None:
+    """从指定 settings.json 中移除 numalarm 注册的 hook（只删自身条目，其余配置保留）。"""
     for settings_path in targets:
         if not settings_path.is_file():
             continue
@@ -502,6 +557,15 @@ def hook_uninstall(hosts: Optional[str], settings_paths: tuple) -> None:
             click.echo(f"[失败] {settings_path} 写入失败：{exc}")
             continue
         click.echo(f"[OK] {settings_path} 已移除 hook：{', '.join(removed)}（备份：{backup.name}）")
+
+
+@hook.command("uninstall")
+@click.option("--host", "hosts", default=None, help="目标宿主：workbuddy / claude / codebuddy / all；默认自动探测")
+@click.option("--settings", "settings_paths", multiple=True, type=click.Path(dir_okay=False, path_type=Path),
+              help="自定义宿主的 settings.json 路径，可多次传入；优先于 --host")
+def hook_uninstall(hosts: Optional[str], settings_paths: tuple) -> None:
+    """移除由 numalarm 注册的 hook（只删自身条目，其余配置原样保留）。"""
+    _remove_numalarm_hooks(_resolve_hook_targets(hosts, settings_paths))
 
 
 @hook.command("status")

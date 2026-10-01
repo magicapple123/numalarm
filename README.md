@@ -82,7 +82,10 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
 
 1. 将 https://github.com/magicapple123/numalarm 克隆到我的 Agent 技能目录（常见为 ~/.<宿主名>/skills/numalarm，不确定时查看宿主文档或直接询问我），并把该路径与 SKILL.md 中的「Agent 集成约定」登记到我的长期记忆，让后续任务自动遵循。
 
-2. 进入仓库目录，用当前 Python 环境执行 pip install -r requirements.txt 安装依赖；然后运行 numalarm doctor 做环境自检，有 FAIL 项按提示修复后重跑，并把结果告诉我。
+2. 在技能目录内创建**独立虚拟环境**并安装依赖（全部隔离在目录内，不写入系统 Python、不影响其他项目）：
+   - `python -m venv .venv`
+   - 之后所有命令均使用 `.venv` 中的 Python 执行（本设备已有兼容环境且你想复用时，先逐项检查只补缺失的依赖，避免重复安装）
+   - 安装完成后运行 numalarm doctor 做环境自检，有 FAIL 项按提示修复后重跑，并把结果告诉我
 
 3. 询问我以下信息，并基于 config.example.yaml 生成 config.yaml：
    - default_target：需要提醒时电话打给哪个 QQ 好友（昵称或备注）
@@ -108,7 +111,12 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
    - 注册打断自动拨打 hook（numalarm hook install；宿主不在内置名单时用 --settings 指定配置路径）
    - 创建桌面快捷方式（numalarm shortcut create <目标> --silent）
 
-要求：每一步执行前先简要说明你要做什么；涉及真实拨打的测试必须先征得我同意。
+8. 告知我卸载方式（保证零残留）：
+   - 一站式清理：numalarm uninstall（自动移除 hook 注册、桌面快捷方式与运行时状态）
+   - 手动删除技能目录即可移除虚拟环境与全部文件（建议最后删）
+   - 若装过虚拟声卡：先切回真实麦克风/扬声器，再到 Windows「设置 - 应用」卸载 VB-Audio Virtual Cable
+
+要求：每一步执行前先简要说明你要做什么；涉及真实拨打的测试必须先征得我同意；所有安装都隔离在技能目录内，不得写入系统 Python 或改动我的其他软件。
 ```
 
 ## 快速开始
@@ -278,6 +286,21 @@ numalarm hook install --settings "D:/我的Agent/settings.json"   # 任意兼容
 - hook 命令：`NUMALARM_CONFIG=... pythonw -m numalarm.interfaces.cli call --silent --auto`（async 异步不阻塞，无黑框，受用户在位检测控制）
 - 自带防轰炸：防抖窗口内重复触发只拨一次；重拨会话持锁期间后续触发直接返回 503 静默退出
 - 注册后重启对应宿主会话生效；配合 `numalarm call -m "原因"` 可在日志中追溯触发原因
+
+## 卸载与零残留
+
+所有组件均可完全移除——依赖隔离在技能目录的独立虚拟环境中，不写入系统 Python，卸载后设备无任何残留：
+
+| 组件 | 清理方式 |
+|------|----------|
+| 宿主 Hook 注册 | `numalarm hook uninstall`（或 `numalarm uninstall` 自动处理） |
+| 桌面快捷方式 | `numalarm shortcut delete <名称>`（或 `numalarm uninstall` 逐个确认删除） |
+| 运行时状态（`~/.numalarm`：防抖记录与锁文件） | `numalarm uninstall` 自动清理 |
+| 技能/仓库目录（含 `.venv` 虚拟环境、`config.yaml`、模板） | 直接删除整个目录即可（建议最后删） |
+| pip 安装的 numalarm 包（若用过 `pip install -e .`） | `pip uninstall numalarm` |
+| 虚拟声卡 VB-Cable（可选装） | 先切回真实麦克风/扬声器，再到 Windows「设置 → 应用」卸载 VB-Audio Virtual Cable |
+
+一站式命令：`numalarm uninstall`（`-y` 跳过确认）。
 
 ## 常见问题（FAQ）
 
