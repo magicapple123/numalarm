@@ -53,6 +53,9 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
 安装后 Agent 自动遵循 SKILL.md「Agent 集成约定」——任务中断/等待决策前先拨打电话。
 命令行拨打能力仍需完成上方依赖安装与下方校准步骤。
 
+> **配置自动发现**：把 `config.yaml` 放在技能目录根即可，无需设置环境变量。
+> 查找优先级：环境变量 `NUMALARM_CONFIG` → 当前工作目录 → **技能/安装目录**。
+
 ### 我用的 Agent 不在常见列表里怎么办？
 
 分四种情况，总有能用的：
@@ -199,7 +202,7 @@ numalarm shortcut delete "打老板电话"      # 删除（确认后执行）
 
 ## 配置说明
 
-完整项与注释见 [config.example.yaml](config.example.yaml)，复制为 `config.yaml` 后修改。主要参数：
+完整项与注释见 [config.example.yaml](config.example.yaml)，复制为 `config.yaml` 后修改（放在运行目录或技能/安装目录均可，自动发现）。主要参数：
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|

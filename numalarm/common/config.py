@@ -183,13 +183,20 @@ class ConfigManager:
 
     @staticmethod
     def find_config_file() -> Optional[Path]:
-        """按优先级查找配置文件：环境变量 -> 当前工作目录。"""
+        """按优先级查找配置文件：环境变量 -> 当前工作目录 -> 安装目录（技能目录）。
+
+        第三级让「作为技能安装到宿主技能目录」的用法无需设置环境变量即可生效。
+        """
         env_path = os.environ.get(CONFIG_ENV)
         if env_path:
             p = Path(env_path)
             return p if p.is_file() else None
         local = Path.cwd() / CONFIG_FILENAME
-        return local if local.is_file() else None
+        if local.is_file():
+            return local
+        # numalarm 包所在安装/克隆目录（如宿主技能目录）
+        pkg_root = Path(__file__).resolve().parents[2] / CONFIG_FILENAME
+        return pkg_root if pkg_root.is_file() else None
 
     @staticmethod
     def _load(path: Optional[Path]) -> NumAlarmConfig:
