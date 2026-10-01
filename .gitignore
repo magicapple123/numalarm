@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# 用户本地配置与运行时产物（示例文件 config.example.yaml 保留入库）
+config.yaml
+logs/
+.numalarm/
+.workbuddy/
+.pytest_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/

@@ -1,0 +1,7 @@
+# 统一换行符：文本文件入库用 LF，Windows 工作区自动处理
+* text=auto
+*.png binary
+*.yaml text
+*.yml text
+*.md text
+*.py text

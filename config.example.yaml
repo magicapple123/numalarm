@@ -1,0 +1,91 @@
+# ==========================================================
+# 牛马铃（numalarm）配置示例
+# 用法：复制本文件为 config.yaml（放在运行目录，或用 NUMALARM_CONFIG
+# 环境变量指定路径），按需修改；也可通过 `numalarm init` 交互式生成。
+# 所有参数均有内置默认值，未列出的项一律使用默认值。
+# ==========================================================
+
+# 默认拨打目标（好友昵称/备注）。
+# CLI 不传目标、HTTP/SDK 不传 target 时使用。
+default_target: 张三
+
+# 别名映射：别名 -> 真实昵称/备注，可配置多个。
+# 配置后 CLI / SDK / HTTP 均可直接使用别名，例如 `numalarm call 老板`
+target_alias:
+  老板: 张三
+  工作号: 李四
+
+# ---------------- QQ 相关 ----------------
+qq_process_name: QQ.exe        # QQ 进程名（任务管理器-详细信息可查）
+qq_window_title: QQ            # QQ 主面板窗口标题匹配关键字
+call_window_hint: 通话         # 拨打后用于确认通话窗口出现的关键字
+verify_call_window: true       # 拨打后是否检测通话窗口；QQ 某些版本不弹独立通话窗时可改为 false
+
+# 鼠标移到屏幕左上角触发 pyautogui 保护中断（True 开启，防误操作兜底）
+failsafe: true
+
+# ---------------- 快捷键（需与 QQ 设置保持一致） ----------------
+hotkey:
+  wake_panel: ctrl+alt+z       # 唤起 QQ 主面板的全局快捷键
+  search: ctrl+f               # 主面板打开搜索框的快捷键（search_method: hotkey 时使用）
+
+# ---------------- 搜索方式 ----------------
+search_method: click           # click=点击主面板搜索框（推荐，QQ NT 不响应 Ctrl+F）/ hotkey=快捷键
+search_box_offset: [225, 81]   # click 模式：搜索框点击点相对主面板左上角的像素偏移（换分辨率/DPI 后需重新校准）
+search_select: click           # click=点击第一条搜索结果（推荐，部分 QQ 版本回车无效）/ enter=回车选中
+search_result_offset: [178, 184]  # click 选中模式：第一条搜索结果点击点相对主面板左上角的像素偏移
+
+# ---------------- 时序参数（秒） ----------------
+timing:
+  key_interval: 0.05           # 模拟按键间隔
+  action_wait: 0.6             # 每步操作后的基础等待
+  search_wait: 2.0             # 输入关键词后等待搜索结果出现
+  chat_open_wait: 1.5          # 回车后等待聊天窗口打开
+  click_confirm_wait: 2.0      # 点击语音按钮后的基础确认等待
+  verify_window_timeout: 8.0   # 通话窗口出现检测超时
+
+# ---------------- 图片匹配 ----------------
+match:
+  confidence: 0.8              # 匹配置信度 0-1：误匹配升高、漏匹配降低
+  max_retry: 2                 # 匹配失败自动重试次数
+  grayscale: true              # 灰度匹配加速（推荐开启）
+
+# ---------------- 防抖 ----------------
+debounce:
+  enabled: true                # 同一目标防抖开关
+  window_seconds: 300          # 防抖窗口（秒），默认 5 分钟
+
+# ---------------- 无人接听自动重拨 ----------------
+retry:
+  enabled: true                # 开关（需 verify_call_window: true，否则自动停用仅拨一次）
+  max_attempts: 0              # 总拨打次数上限（含首次）；0=不限次，直至对方接听或拒绝
+  interval_seconds: 10         # 重拨间隔（秒）
+  ring_seconds: 45             # 单次响铃时长上限（秒）：超过则主动点击挂断并重拨；
+                               # 0=不主动挂断，等 QQ 自然结束（可能长达数分钟）
+  natural_ringout_seconds: 120 # 自然响铃超时下限（秒）：实测 QQ 无人接听自然挂断需数分钟，
+                               # 通话窗口存活低于该值即关闭 → 判定为对方已接听/拒绝（触达成功），
+                               # 防止「秒拒」在两次轮询间完成而被误判为无人接听导致不停重拨
+  no_answer_seconds: 25        # 兜底阈值（秒）：缺少 assets/call_ringing_sample.png 响铃模板时，
+                               # 按通话窗口从出现到关闭的历经时长判定（超阈值=无应答）。
+                               # 存在响铃模板时使用状态文本判定（推荐，无需关注该值）
+
+# ---------------- 用户在位检测（仅 auto 自动化触发生效） ----------------
+presence:
+  enabled: true                # 空闲检测开关
+  idle_seconds: 180            # 键鼠空闲超过该秒数才真正拨打；低于该值视为用户正在
+                               # 电脑前，静默跳过（人在电脑前不打扰，离开后自动恢复）
+                               # 手动命令（numalarm call 不带 --auto）不受此检测限制
+
+# ---------------- 日志 ----------------
+log:
+  level: INFO                  # DEBUG / INFO / WARNING / ERROR
+  file: logs/numalarm.log      # 置空（null）则不写文件日志
+
+# ---------------- HTTP 服务 ----------------
+server:
+  host: 127.0.0.1              # 对外提供 Agent 调用时可改为 0.0.0.0（注意安全）
+  port: 18600
+
+# ---------------- 桌面快捷方式 ----------------
+shortcut:
+  name_prefix: 牛马铃-拨打      # 快捷方式默认名称前缀

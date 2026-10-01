@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    name: 测试与规范（Ubuntu / Python ${{ matrix.python-version }}）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install pydantic==2.10.3 PyYAML==6.0.2 click==8.1.8 fastapi==0.115.6 uvicorn==0.34.0 psutil==6.1.0 pytest ruff
+
+      - name: 语法检查
+        run: python -m compileall -q numalarm
+
+      - name: 代码规范（ruff）
+        run: ruff check numalarm tests
+
+      - name: 单元测试
+        run: pytest -q
+
+  windows-smoke:
+    name: Windows 导入冒烟
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install pydantic==2.10.3 PyYAML==6.0.2 click==8.1.8
+
+      - name: 语法与导入冒烟
+        run: |
+          python -m compileall -q numalarm
+          python -c "import numalarm; print('numalarm', numalarm.__version__)"

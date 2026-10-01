@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "numalarm"
+version = "1.0.0"
+description = "牛马铃：基于桌面 UI 自动化的 QQ 语音通话提醒 Skill"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "numalarm" }]
+keywords = ["qq", "voice-call", "ui-automation", "notification", "agent-skill"]
+dependencies = [
+  "pyautogui==0.9.54",
+  "opencv-python==4.10.0.84",
+  "Pillow==11.0.0",
+  "pygetwindow==0.0.9",
+  "pyperclip==1.9.0",
+  "psutil==6.1.0",
+  "pydantic==2.10.3",
+  "PyYAML==6.0.2",
+  "fastapi==0.115.6",
+  "uvicorn==0.34.0",
+  "click==8.1.8",
+  "pywin32==306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+numalarm = "numalarm.interfaces.cli:cli"
+
+[tool.setuptools.packages.find]
+include = ["numalarm*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["F", "E9"]
