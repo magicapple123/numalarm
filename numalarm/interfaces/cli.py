@@ -212,6 +212,10 @@ def shortcut_create(target: str, name: Optional[str], silent: bool) -> None:
     display_name = name or f"{prefix}{target}"
     safe_name = re.sub(r'[\\/:*?"<>|]', "_", display_name)
     lnk_path = _desktop_dir() / f"{safe_name}.lnk"
+    if lnk_path.exists():
+        if not click.confirm(f"快捷方式已存在：{lnk_path.name}，覆盖它？", default=False):
+            click.echo("已取消，未做任何更改。")
+            return
 
     shell = win32com.client.Dispatch("WScript.Shell")
     lnk = shell.CreateShortCut(str(lnk_path))

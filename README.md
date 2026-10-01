@@ -76,50 +76,50 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
 
 ### 小白一键安装：把这段话发给你的 Agent 即可
 
-不熟悉命令行？把下面整段提示词复制、发送给你电脑里的 Agent（任何能执行命令行与读写文件的 Agent 均可），它会自动完成询问配置、安装与校准：
+不熟悉命令行？把下面整段提示词复制、发送给你电脑里的 Agent（任何能执行命令行与读写文件的 Agent 均可）。**流程完全幂等**：无论是全新安装、上次装到一半中断，还是想顺便更新，重复发送都安全——每一步都会先检查当前状态，已完成的自动跳过，不会重复安装文件、不会覆盖你已校准的配置：
 
 ```text
-请帮我安装 numalarm（牛马铃）技能，这是一个在任务中断或需要我决策时自动给我打 QQ 电话提醒的工具。请按以下步骤执行：
+请帮我安装（或修复/续装）numalarm（牛马铃）技能——这是一个在任务中断或需要我决策时自动给我打 QQ 电话提醒的工具。本流程可安全重复执行：每一步都先检查我的设备当前状态，已完成的自动跳过，不会重复安装文件，也不会覆盖我已校准的配置。请按以下步骤执行：
 
-1. 将 https://github.com/magicapple123/numalarm 克隆到我的 Agent 技能目录（常见为 ~/.<宿主名>/skills/numalarm，不确定时查看宿主文档或直接询问我），并把该路径与 SKILL.md 中的「Agent 集成约定」登记到我的长期记忆，让后续任务自动遵循。
+1. 技能目录：
+   - 检查我的宿主技能目录（常见为 ~/.<宿主名>/skills/numalarm，不确定时查看宿主文档或询问我）下是否已存在 numalarm
+   - 已存在且是 git 仓库：进入目录执行 git pull 更新到最新版（保留我的配置与校准文件）
+   - 不存在：从 https://github.com/magicapple123/numalarm 克隆
+   - 将该路径与 SKILL.md 的「Agent 集成约定」登记到我的长期记忆（已有则更新）
 
-2. 在技能目录内创建**独立虚拟环境**并安装依赖（全部隔离在目录内，不写入系统 Python、不影响其他项目）：
-   - `python -m venv .venv`
-   - 之后所有命令均使用 `.venv` 中的 Python 执行（本设备已有兼容环境且你想复用时，先逐项检查只补缺失的依赖，避免重复安装）
-   - 安装完成后运行 numalarm doctor 做环境自检，有 FAIL 项按提示修复后重跑，并把结果告诉我
+2. 依赖（全部隔离在技能目录的 .venv 内，不写系统 Python）：
+   - .venv 已存在：直接复用，不重建
+   - 不存在：python -m venv .venv 创建
+   - 运行 .venv 的 python -m pip install -r requirements.txt（pip 对已满足的依赖自动跳过），然后运行 numalarm doctor 自检，有 FAIL 项修复后重跑
 
-3. 询问我以下信息，并基于 config.example.yaml 生成 config.yaml：
-   - default_target：需要提醒时电话打给哪个 QQ 好友（昵称或备注）
-   - 是否配置别名（target_alias）
-   - 每轮响铃时长 ring_seconds（默认 45 秒）与重拨上限 max_attempts（默认 0=不限次）
-   - 是否启用「用户在位检测」（presence，默认开启：我在电脑前时不会真的拨打）
+3. 配置文件 config.yaml：
+   - 已存在：读取它，只补缺失的配置项（如 media/presence 等），不要覆盖我已校准的值
+   - 不存在：基于 config.example.yaml 生成，并向我询问：default_target（提醒电话打给哪个 QQ 好友）、是否配置别名、响铃时长与重拨上限（默认 45 秒/不限次）、是否启用用户在位检测（默认开启）
 
-4. 指导我完成两张模板截图（详细说明在 assets/README.md）：
-   - 打开与目标好友的聊天窗口，截取「语音通话」按钮图标，覆盖 assets/voice_button_sample.png
-   - 向该好友发起一次语音通话，在响铃界面截取顶部「等待对方接听」文字，覆盖 assets/call_ringing_sample.png
-   注意：发起通话前必须先征得我同意。
+4. 两张模板截图（先用 git status/diff 检查 assets 下两个文件是否已被修改：已修改=我已校准，跳过对应步骤）：
+   - assets/voice_button_sample.png 未校准：指导我打开与目标好友的聊天窗口，截取「语音通话」按钮图标覆盖它
+   - assets/call_ringing_sample.png 未校准：指导我发起一次语音通话（先征得我同意），在响铃界面截取顶部「等待对方接听」文字覆盖它
 
-5. 询问我是否启用「接听后语音提醒」（对方接听后会听到固定语音，默认文本"任务有新进展，请前往电脑查看"）。若启用：
-   - 从 https://vb-audio.com/Cable/ 下载虚拟声卡 VB-Cable 安装包并解压，运行其中的 VBCABLE_Setup_x64.exe（需要我在 UAC 弹窗授权，安装后可能需要重启）
-   - 检查系统默认扬声器是否被虚拟声卡抢占，若是则切回我的真实扬声器
-   - 将系统默认录音设备设为「CABLE Output」：可用 PowerShell 模块 AudioDeviceCmdlets（Install-Module AudioDeviceCmdlets 后 Get-AudioDevice -List 过滤管道到 Set-AudioDevice），或指导我在 mmsys.cpl 中手动设置；注意新版 QQ 内置设置里没有设备选择项，走系统默认设备是唯一途径
-   - 提醒我：真人语音通话时对方会听不到我，说一声即可切回真实麦克风
-   - 在 config.yaml 中设置 media.speak_on_answer: true
+5. 虚拟声卡（仅当我要启用「接听后语音提醒」时执行）：
+   - 先枚举系统音频输出设备，检查是否已存在 CABLE 设备（可用几行 Python 调 Windows SAPI 枚举，或让我看 mmsys.cpl 的播放设备列表）——已存在则跳过下载与安装
+   - 未安装：从 https://vb-audio.com/Cable/ 下载 VB-Cable 安装包解压，运行 VBCABLE_Setup_x64.exe（需要我在 UAC 授权，安装后可能需重启），完成后检查默认扬声器是否被抢占、被抢占则切回我的真实扬声器
 
-6. 运行 numalarm test <我的目标> 做校准，四步全部 PASS 后告诉我安装完成；若有 FAIL，按提示协助修正（常见为重新截图或调整偏移）。
+6. 麦克风指向（QQ 新版没有设备选择项，走系统默认录音设备）：
+   - 检查当前默认录音设备：已是 CABLE Output 则跳过；否则设为「CABLE Output」（可用 PowerShell 模块 AudioDeviceCmdlets，或指导我在 mmsys.cpl 手动设置），并提醒我真人语音通话时说一声即可切回
 
-7. 最后询问我是否需要：
-   - 注册打断自动拨打 hook（numalarm hook install；宿主不在内置名单时用 --settings 指定配置路径）
-   - 创建桌面快捷方式（numalarm shortcut create <目标> --silent）
+7. 若第 5 步启用了语音提醒：确认 config.yaml 中 media.speak_on_answer 为 true（已是则跳过）
 
-8. 告知我卸载方式（保证零残留）：
-   - 一站式清理：numalarm uninstall（自动移除 hook 注册、桌面快捷方式与运行时状态）
-   - 手动删除技能目录即可移除虚拟环境与全部文件（建议最后删）
-   - 若装过虚拟声卡：先切回真实麦克风/扬声器，再到 Windows「设置 - 应用」卸载 VB-Audio Virtual Cable
+8. 校准：运行 numalarm test <我的目标>，四步全部 PASS 即完成；有 FAIL 按提示协助修正（常见为重新截图或调整偏移）
 
-9. 以后任何时候我说「更新 numalarm」，你就运行 numalarm update：先检查远端是否有新版本——没有就告诉我当前已是最新、不需要更新；有则更新（自动保留我的 config.yaml 与校准模板、同步依赖并刷新 hook），完成后运行 numalarm doctor 与 numalarm test 验证。
+9. 询问我是否需要（均幂等，重复执行无害）：
+   - 注册打断自动拨打 hook（numalarm hook install，重复运行只刷新命令不重复注册）
+   - 创建桌面快捷方式（numalarm shortcut create <目标> --silent，同名会先询问是否覆盖）
 
-要求：每一步执行前先简要说明你要做什么；涉及真实拨打的测试必须先征得我同意；所有安装都隔离在技能目录内，不得写入系统 Python 或改动我的其他软件。
+10. 告知我卸载方式：numalarm uninstall 一站式清理 + 删除技能目录；若装过虚拟声卡需在 Windows「设置-应用」卸载
+
+11. 以后任何时候我说「更新 numalarm」，运行 numalarm update：先检查远端有无新版本——没有就告诉我当前已是最新、不需要更新；有则更新（自动保留我的 config.yaml 与校准模板），完成后运行 doctor 与 test 验证
+
+要求：每一步执行前先报告检查结果与将要做的事；涉及真实拨打的测试必须先征得我同意；所有安装隔离在技能目录内，不得写入系统 Python 或改动我的其他软件。
 ```
 
 ## 快速开始
