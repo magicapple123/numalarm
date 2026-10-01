@@ -76,6 +76,15 @@ presence:
                                # 电脑前，静默跳过（人在电脑前不打扰，离开后自动恢复）
                                # 手动命令（numalarm call 不带 --auto）不受此检测限制
 
+# ---------------- 接听后语音提醒（可选，需虚拟声卡） ----------------
+media:
+  speak_on_answer: false       # 对方接听后自动播放固定语音（需要先安装虚拟声卡，见 README）
+  message: 任务有新进展，请前往电脑查看   # 要播放的文本（Windows SAPI 离线合成，无需联网）
+  output_device_hint: CABLE    # 语音输出设备名关键字（虚拟声卡播放端，如 CABLE Input）
+  hangup_after_speak: true     # 播放完成后自动挂断
+  volume: 100                  # 音量 0-100
+  speak_timeout: 30            # 播放超时（秒）
+
 # ---------------- 日志 ----------------
 log:
   level: INFO                  # DEBUG / INFO / WARNING / ERROR

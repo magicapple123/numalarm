@@ -81,6 +81,17 @@ class RetryConfig(BaseModel):
     )
 
 
+class MediaConfig(BaseModel):
+    """接听后语音提醒：对方接听后自动向其播放一段固定语音（需虚拟声卡，见 README）。"""
+
+    speak_on_answer: bool = Field(False, description="对方接听后自动播放语音提醒；需要安装虚拟声卡并在 QQ 中将麦克风设为其输入端")
+    message: str = Field("任务有新进展，请前往电脑查看", description="要播放的提醒文本（Windows SAPI 离线语音合成，无需联网）")
+    output_device_hint: str = Field("CABLE", description="语音输出设备名匹配关键字（虚拟声卡的播放端，如 CABLE Input）")
+    hangup_after_speak: bool = Field(True, description="播放完成后自动挂断；关闭则保持通话")
+    volume: int = Field(100, description="提醒语音音量 0-100")
+    speak_timeout: float = Field(30.0, description="语音播放超时（秒）")
+
+
 class PresenceConfig(BaseModel):
     """用户在位检测：人在电脑前时跳过拨打（仅对自动化触发生效，手动命令不受限）。"""
 
@@ -146,6 +157,7 @@ class NumAlarmConfig(BaseModel):
     debounce: DebounceConfig = DebounceConfig()
     retry: RetryConfig = RetryConfig()
     presence: PresenceConfig = PresenceConfig()
+    media: MediaConfig = MediaConfig()
     log: LogConfig = LogConfig()
     server: ServerConfig = ServerConfig()
     shortcut: ShortcutConfig = ShortcutConfig()

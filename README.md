@@ -16,6 +16,7 @@
 - **并发安全**：全局互斥锁，同一时间仅一路拨打，并发返回「占线」（503）
 - **防抖**：同一目标默认 5 分钟内仅拨一次（可配置）
 - **无人接听自动重拨**：对方接听或拒绝均视为触达成功；无应答自动间隔重拨，直至接听或拒绝（次数可设上限或不限）
+- **接听后语音提醒**（可选）：对方接听后自动播放固定语音（如「任务有新进展，请前往电脑查看」），播完自动挂断
 - **全配置化**：快捷键、等待时长、置信度、防抖、端口全部进配置文件，无硬编码
 - **合规**：仅模拟手动操作，无注入、无破解、不调用 QQ 私有接口、不存账号密码
 
@@ -201,10 +202,36 @@ numalarm shortcut delete "打老板电话"      # 删除（确认后执行）
 | retry.ring_seconds | 45 | 单次响铃上限（秒），超时主动挂断重拨；0=等 QQ 自然结束（可能数分钟） |
 | retry.natural_ringout_seconds | 120 | 自然响铃超时下限（秒）：窗口存活低于该值即关闭视为已接听/拒绝，防止秒拒被误判无人接听 |
 | presence.enabled / idle_seconds | true / 180 | 用户在位检测：键鼠空闲超过该秒数才拨打（仅 auto 触发路径生效，手动命令不受限） |
+| media.speak_on_answer | false | 接听后自动播放语音提醒（需虚拟声卡） |
+| media.message | 任务有新进展，请前往电脑查看 | 提醒文本（SAPI 离线合成） |
+| media.output_device_hint | CABLE | 语音输出设备名关键字 |
+| media.hangup_after_speak | true | 播放完成后自动挂断 |
 | retry.no_answer_seconds | 25 | 兜底判定阈值（秒）；有响铃模板时改用状态文本判定（推荐） |
 | log.level / file | INFO / logs/numalarm.log | 日志级别与文件 |
 | server.host / port | 127.0.0.1 / 18600 | HTTP 服务监听 |
 | shortcut.name_prefix | 牛马铃-拨打 | 快捷方式名称前缀 |
+
+## 接听后语音提醒（可选）
+
+想让对方**接听后听到一段固定语音**（如「任务有新进展，请前往电脑查看」）？原理：QQ 语音通话只传麦克风的声音，因此用**虚拟声卡**把离线合成的语音注入 QQ 的麦克风输入。
+
+**一次性准备**：
+
+1. 安装免费虚拟声卡驱动 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)（安装后重启）；
+2. QQ 设置 → 音视频通话 → 麦克风选择「CABLE Output (VB-Audio Virtual Cable)」；
+   ⚠️ 此后你用 QQ 打电话说话对方听不到你本人声音，需真人通话时在 QQ 里把麦克风切回真实设备（进阶可用 VoiceMeeter 把真实麦克风与虚拟声卡混音，两者兼顾）。
+
+**启用**：config.yaml 中设置
+
+```yaml
+media:
+  speak_on_answer: true
+  message: 任务有新进展，请前往电脑查看
+  output_device_hint: CABLE
+  hangup_after_speak: true    # 播完自动挂断
+```
+
+之后的拨打流程变为：对方接听 → 自动播放提醒语音 → 自动挂断（无人接听仍自动重拨）。语音由 Windows 自带 SAPI 离线合成（支持中文），**无需联网、无需额外依赖**；未安装虚拟声卡时该功能自动降级为普通拨打（如实记录播放失败）。
 
 ## 宿主 Hook 集成（跨 Agent 通用）
 

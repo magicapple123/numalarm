@@ -12,6 +12,6 @@
 
 from numalarm.interfaces.sdk import call_qq, test_call
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 __all__ = ["call_qq", "test_call", "__version__"]

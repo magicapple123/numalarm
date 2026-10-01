@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "numalarm"
-version = "1.0.0"
+version = "1.0.1"
 description = "牛马铃：基于桌面 UI 自动化的 QQ 语音通话提醒 Skill"
 readme = "README.md"
 requires-python = ">=3.10"

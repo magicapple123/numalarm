@@ -4,7 +4,7 @@ description: 牛马铃——QQ 语音通话强提醒 Skill。基于桌面 UI 自
 license: MIT
 compatibility: 仅支持 Windows 10/11 + PC 版 QQ（已登录、桌面解锁）；Python 3.10+；不支持网页版/Mac/移动端
 metadata:
-  version: 1.0.0
+  version: 1.0.1
   display-name: 牛马铃
   keywords: [qq, voice-call, phone-notification, ui-automation, agent-alert]
 ---
@@ -22,6 +22,7 @@ metadata:
 - 全局互斥锁：同一时间仅一路拨打，并发请求直接返回「占线」（503）
 - 防抖机制：同一目标默认 5 分钟内重复调用仅执行第一次（可配置）
 - 无人接听自动重拨：以「等待对方接听」状态文本模板确定性判定——文案变化（计时器/拒绝提示）即触达成功，窗口关闭且全程响铃即无应答，自动间隔重拨直至触达（次数可不限）
+- 接听后语音提醒（可选）：对方接听后自动播放固定语音（SAPI 离线合成，经虚拟声卡注入 QQ 麦克风），播完自动挂断
 - Windows 桌面快捷方式一键拨打，支持静默后台执行（无黑框）
 - 全参数配置化（快捷键/等待时长/置信度/防抖/端口），无硬编码
 - 仅模拟手动操作：无注入、无破解、不调用 QQ 私有接口、不存储账号密码
@@ -161,6 +162,8 @@ numalarm call --silent -m "任务中断：需要你在方案 A/B 之间选择"
 | retry.interval_seconds | 10 | 无人接听重拨间隔（秒） |
 | retry.ring_seconds | 45 | 单次响铃上限（秒），超时主动挂断重拨；0=等 QQ 自然结束（可能数分钟） |
 | retry.natural_ringout_seconds | 120 | 自然响铃超时下限（秒）：窗口存活低于该值即关闭视为已接听/拒绝，防止秒拒被误判无人接听 |
+| media.speak_on_answer | false | 接听后自动播放语音提醒（需虚拟声卡，见 README） |
+| media.message / output_device_hint | 任务有新进展… / CABLE | 提醒文本与语音输出设备关键字 |
 | retry.no_answer_seconds | 25 | 无人接听判定阈值（秒），需略小于 QQ 响铃超时（约 30s） |
 | log.level / file | INFO / logs/numalarm.log | 日志级别与文件 |
 | server.host / port | 127.0.0.1 / 18600 | HTTP 服务监听 |

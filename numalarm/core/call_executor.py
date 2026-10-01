@@ -212,7 +212,8 @@ class CallExecutor:
 
                     if outcome.kind in (OUTCOME_ANSWERED, OUTCOME_TERMINAL):
                         # 接听 / 拒绝（或取消）：触达成功，停止拨打
-                        label = "对方已接听" if outcome.kind == OUTCOME_ANSWERED else "对方已接听或已拒绝"
+                        default_label = "对方已接听" if outcome.kind == OUTCOME_ANSWERED else "对方已接听或已拒绝"
+                        label = str(outcome.extra.get("outcome") or default_label)
                         elapsed = round(time.time() - start, 2)
                         logger.info(
                             "拨打流程完成：target=%s 结果=%s 第 %d 次拨打 触达耗时=%ss",
@@ -559,8 +560,7 @@ class CallExecutor:
                             break
                         time.sleep(0.3)
                     if confirmed:
-                        logger.info("通话窗口头部状态已变化（计时器/拒绝提示），判定：对方已接听或已拒绝")
-                        return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+                        return self._handle_state_change(extra)
                     # 复检恢复响铃 → 判定为瞬时闪烁，继续监控
                 else:
                     # 仍在响铃：响铃超时主动挂断，以便快速进入下一轮（QQ 自然超时可能数分钟）
@@ -575,6 +575,79 @@ class CallExecutor:
                         # 挂断按钮定位失败：稍后再试（推迟 2s 避免密集重试）
                         ring_started = time.time() - ring_limit + 2.0
             time.sleep(_OUTCOME_POLL)
+
+    def _handle_state_change(self, extra: Dict[str, Any]) -> CallOutcome:
+        """头部状态变化（离开响铃态）后的处理：区分接听/拒绝，按配置播放语音提醒。
+
+        区分方法（无 OCR 的稳定启发式）：
+        - 对方拒绝：通话窗口在数秒内关闭
+        - 对方接听：通话窗口保持存在（通话中），可自动播放语音提醒后挂断
+        """
+        m = self.config.media
+        # 最多等 3.5s：窗口仍存在 => 已接听（通话中）；消失 => 已拒绝/取消
+        deadline = time.time() + 3.5
+        win = None
+        while time.time() < deadline:
+            win = self._find_call_window()
+            if win is not None:
+                break
+            time.sleep(0.3)
+
+        if win is None:
+            logger.info("状态变化后通话窗口已关闭，判定：对方已拒绝（已触达）")
+            extra = {**extra, "outcome": "对方已拒绝（已触达）"}
+            return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+
+        # 对方已接听
+        if not m.speak_on_answer:
+            logger.info("对方已接听（通话窗口保持），触达成功")
+            extra = {**extra, "outcome": "对方已接听（通话中）", "answered": True}
+            return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+
+        spoke = self._speak_reminder()
+        if spoke and m.hangup_after_speak:
+            hang_win = self._find_call_window()
+            if hang_win is not None:
+                self._click_hangup(hang_win)
+                for _ in range(16):
+                    if self._find_call_window() is None:
+                        break
+                    time.sleep(_OUTCOME_POLL)
+            logger.info("语音提醒播放完成，已自动挂断")
+            extra = {**extra, "outcome": "对方已接听，语音提醒已播放", "answered": True, "voice_played": True}
+            return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+
+        if spoke:
+            logger.info("语音提醒播放完成，按配置保持通话")
+            extra = {**extra, "outcome": "对方已接听，语音提醒已播放（通话保持）", "answered": True, "voice_played": True}
+            return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+
+        # 播放失败（通常是未安装虚拟声卡）：保持通话，如实报告
+        logger.warning("语音提醒播放失败（未检测到虚拟声卡输出设备？），通话保持")
+        extra = {**extra, "outcome": "对方已接听，语音提醒播放失败", "answered": True, "voice_played": False}
+        return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+
+    def _speak_reminder(self) -> bool:
+        """向对方播放配置的提醒语音（SAPI 离线合成 -> 虚拟声卡 -> QQ 麦克风）。"""
+        m = self.config.media
+        try:
+            from numalarm.core.voice import speak_to_device
+        except NumAlarmError as exc:
+            logger.warning("%s", exc.message)
+            return False
+        try:
+            ok = speak_to_device(
+                m.message,
+                device_hint=m.output_device_hint,
+                volume=m.volume,
+                timeout=float(m.speak_timeout),
+            )
+        except NumAlarmError as exc:
+            logger.warning("%s", exc.message)
+            return False
+        if ok:
+            logger.info("语音提醒播放完成：%s", m.message)
+        return ok
 
     def _click_hangup(self, win: Dict[str, Any]) -> bool:
         """点击通话窗口中的红色挂断按钮（按红色像素簇重心定位）。

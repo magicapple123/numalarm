@@ -72,6 +72,9 @@ print('example config ok:', cfg.server.port)"
 | TC-116 | 在位检测跳过 | 人正在操作电脑时执行 `call --auto`（或临时把 presence.idle_seconds 调大） | code=200，data.skipped=true、attempts=0，不产生真实拨打 |
 | TC-117 | 手动拨打不受检测 | 不带 `--auto` 执行 `call` | 忽略在位检测，正常拨打 |
 | TC-118 | 重拨中途回来 | 重拨会话进行中用户回到电脑前（动鼠标） | 下一轮重拨前检测到在位 -> 停止重拨，code=200 skipped |
+| TC-119 | 接听后语音提醒 | 安装虚拟声卡 + QQ 麦克风设为其输入端 + `media.speak_on_answer: true`，拨打并接听 | 接听后自动播放提醒语音 -> 自动挂断 -> code=200，data.voice_played=true |
+| TC-120 | 语音提醒降级 | 未安装虚拟声卡 + `speak_on_answer: true`，拨打并接听 | 播放失败如实记录 -> code=200，data.voice_played=false，通话保持 |
+| TC-121 | 语音合成自检 | `python -c` 调用 voice.synthesize_to_file 生成 wav | 文件生成成功（静默，不外放） |
 
 ## 4. HTTP 接口
 
