@@ -383,7 +383,9 @@ def _entry_has_numalarm(entry: Any) -> bool:
         return False
 
 
-def _resolve_hook_targets(hosts: Optional[str]) -> List[Path]:
+def _resolve_hook_targets(hosts: Optional[str], settings_paths: tuple) -> List[Path]:
+    if settings_paths:
+        return [Path(p) for p in settings_paths]
     if hosts and hosts != "all":
         if hosts not in KNOWN_HOSTS:
             raise click.BadParameter(f"未知宿主 {hosts}（可选：{', '.join(KNOWN_HOSTS)} / all）")
@@ -398,18 +400,23 @@ def hook() -> None:
 
 @hook.command("install")
 @click.option("--host", "hosts", default=None, help="目标宿主：workbuddy / claude / codebuddy / all；默认自动探测")
-def hook_install(hosts: Optional[str]) -> None:
+@click.option("--settings", "settings_paths", multiple=True, type=click.Path(dir_okay=False, path_type=Path),
+              help="自定义宿主的 settings.json 路径（Claude Code 兼容 schema），可多次传入；优先于 --host")
+def hook_install(hosts: Optional[str], settings_paths: tuple) -> None:
     """向 Notification / PermissionRequest 事件注册/更新静默拨打 hook（幂等，保留既有配置）。"""
-    targets = _resolve_hook_targets(hosts)
+    targets = _resolve_hook_targets(hosts, settings_paths)
     if not targets:
-        click.echo("未探测到已安装的兼容宿主（settings.json 不存在）；可用 --host <名称> 指定。")
+        click.echo("未探测到已安装的兼容宿主（settings.json 不存在）；可用 --host 或 --settings 指定。")
         sys.exit(1)
 
     cmd = _hook_command()
     for settings_path in targets:
+        raw = ""
+        data: dict = {}
         try:
-            raw = settings_path.read_text(encoding="utf-8")
-            data = json.loads(raw)
+            if settings_path.is_file():
+                raw = settings_path.read_text(encoding="utf-8")
+                data = json.loads(raw)
         except (OSError, json.JSONDecodeError) as exc:
             click.echo(f"[跳过] {settings_path} 不可读：{exc}")
             continue
@@ -459,9 +466,11 @@ def hook_install(hosts: Optional[str]) -> None:
 
 @hook.command("uninstall")
 @click.option("--host", "hosts", default=None, help="目标宿主：workbuddy / claude / codebuddy / all；默认自动探测")
-def hook_uninstall(hosts: Optional[str]) -> None:
+@click.option("--settings", "settings_paths", multiple=True, type=click.Path(dir_okay=False, path_type=Path),
+              help="自定义宿主的 settings.json 路径，可多次传入；优先于 --host")
+def hook_uninstall(hosts: Optional[str], settings_paths: tuple) -> None:
     """移除由 numalarm 注册的 hook（只删自身条目，其余配置原样保留）。"""
-    targets = _resolve_hook_targets(hosts)
+    targets = _resolve_hook_targets(hosts, settings_paths)
     for settings_path in targets:
         if not settings_path.is_file():
             continue
@@ -496,9 +505,14 @@ def hook_uninstall(hosts: Optional[str]) -> None:
 
 
 @hook.command("status")
-def hook_status() -> None:
+@click.option("--settings", "settings_paths", multiple=True, type=click.Path(dir_okay=False, path_type=Path),
+              help="额外检查的自定义宿主 settings.json 路径，可多次传入")
+def hook_status(settings_paths: tuple) -> None:
     """查看各宿主的 numalarm hook 注册状态。"""
-    for name, path in KNOWN_HOSTS.items():
+    targets = {name: path for name, path in KNOWN_HOSTS.items()}
+    for i, p in enumerate(settings_paths):
+        targets[f"自定义-{i + 1}"] = p
+    for name, path in targets.items():
         if not path.is_file():
             click.echo(f"{name:<10} 未安装宿主（无 settings.json）")
             continue

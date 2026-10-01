@@ -55,6 +55,23 @@ git clone https://github.com/magicapple123/numalarm.git "$HOME/.claude/skills/nu
 安装后 Agent 自动遵循 SKILL.md「Agent 集成约定」——任务中断/等待决策前先拨打电话。
 命令行拨打能力仍需完成上方依赖安装与下方校准步骤。
 
+### 我用的 Agent 不在上面的列表里怎么办？
+
+分三种情况，总有能用的：
+
+1. **宿主支持 Agent Skill 规范**（读 SKILL.md 的都算）：查该宿主文档找到它的技能目录，
+   把仓库放进 `skills/numalarm` 即可——SKILL.md 是开放规范，不限定宿主；
+2. **任何能执行命令行/脚本的 Agent**：其实**不需要「安装 skill」**——
+   装好依赖（`pip install -r requirements.txt`）、配好 `config.yaml`，
+   直接调 CLI / Python SDK / HTTP 三种接口即可，与宿主无关；
+3. **想让打断自动提醒的约定长期生效**：把 SKILL.md 中「Agent 集成约定」一节
+   粘贴进该 Agent 的系统提示 / 长期记忆 / 规则文件（如 AGENTS.md、CLAUDE.md、自定义指令），
+   效果等同技能安装；
+4. **打断自动拨打的 Hook 兜底**：任何使用 Claude Code hooks 兼容配置
+   （`settings.json`）的宿主都能注册，指定配置路径即可：
+   `numalarm hook install --settings "D:/我的Agent/settings.json"`；
+   完全不支持 hooks 的宿主则依赖第 3 点的约定层（Agent 主动拨打）。
+
 ### 小白一键安装：把这段话发给你的 Agent 即可
 
 不熟悉命令行？把下面整段提示词复制、发送给你电脑里的 Agent（WorkBuddy / Claude Code / CodeBuddy 均可），它会自动完成询问配置、安装与校准：
@@ -241,9 +258,10 @@ media:
 numalarm hook install      # 自动探测已安装的兼容宿主并注册（幂等，先备份）
 numalarm hook status       # 查看注册状态
 numalarm hook uninstall    # 移除（只删自身条目，其余配置保留）
+numalarm hook install --settings "D:/我的Agent/settings.json"   # 任意兼容宿主：手动指定配置路径
 ```
 
-- 支持宿主：**WorkBuddy / Claude Code / CodeBuddy** 等 Claude Code hooks 兼容端（自动探测 `~/.workbuddy`、`~/.claude`、`~/.codebuddy` 下的 settings.json）
+- 支持宿主：**WorkBuddy / Claude Code / CodeBuddy** 等 Claude Code hooks 兼容端（自动探测 `~/.workbuddy`、`~/.claude`、`~/.codebuddy` 下的 settings.json）；其他兼容宿主用 `--settings <路径>` 指定，不限于内置名单
 - 注册事件：`Notification`（Agent 需要用户注意）+ `PermissionRequest`（等待用户批准）——即「Agent 停下来等你处理」的时刻
 - hook 命令：`NUMALARM_CONFIG=... pythonw -m numalarm.interfaces.cli call --silent`（async 异步不阻塞，无黑框）
 - 自带防轰炸：防抖窗口内重复触发只拨一次；重拨会话持锁期间后续触发直接返回 503 静默退出
