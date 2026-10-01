@@ -1,6 +1,7 @@
 # 牛马铃（numalarm）
 
 [![CI](https://github.com/magicapple123/numalarm/actions/workflows/ci.yml/badge.svg)](https://github.com/magicapple123/numalarm/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/magicapple123/numalarm)](https://github.com/magicapple123/numalarm/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
