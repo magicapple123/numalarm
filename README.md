@@ -116,6 +116,8 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
    - 手动删除技能目录即可移除虚拟环境与全部文件（建议最后删）
    - 若装过虚拟声卡：先切回真实麦克风/扬声器，再到 Windows「设置 - 应用」卸载 VB-Audio Virtual Cable
 
+9. 以后任何时候我说「更新 numalarm」，你就运行 numalarm update：先检查远端是否有新版本——没有就告诉我当前已是最新、不需要更新；有则更新（自动保留我的 config.yaml 与校准模板、同步依赖并刷新 hook），完成后运行 numalarm doctor 与 numalarm test 验证。
+
 要求：每一步执行前先简要说明你要做什么；涉及真实拨打的测试必须先征得我同意；所有安装都隔离在技能目录内，不得写入系统 Python 或改动我的其他软件。
 ```
 
@@ -286,6 +288,19 @@ numalarm hook install --settings "D:/我的Agent/settings.json"   # 任意兼容
 - hook 命令：`NUMALARM_CONFIG=... pythonw -m numalarm.interfaces.cli call --silent --auto`（async 异步不阻塞，无黑框，受用户在位检测控制）
 - 自带防轰炸：防抖窗口内重复触发只拨一次；重拨会话持锁期间后续触发直接返回 503 静默退出
 - 注册后重启对应宿主会话生效；配合 `numalarm call -m "原因"` 可在日志中追溯触发原因
+
+## 更新
+
+```bash
+numalarm update
+```
+
+**先检查、后更新**：
+
+- 没有新版本：提示「已是最新版本，无需更新」，不做任何改动；
+- 有新版本：自动备份你的 `config.yaml` 与校准模板 → 拉取最新代码 → 同步虚拟环境依赖 → 刷新 hook 注册 → **恢复你的配置与校准模板**（上游若带来新模板会另存于备份目录供对比）。
+
+完成后建议运行 `numalarm test` 校准，并重启宿主会话使技能更新生效。手动方式（备选）：进入技能目录 `git stash && git pull && git stash pop`，再同步 `.venv` 依赖与 `numalarm hook install`。
 
 ## 卸载与零残留
 

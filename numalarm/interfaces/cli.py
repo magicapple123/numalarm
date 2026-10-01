@@ -19,7 +19,9 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -397,6 +399,121 @@ def uninstall(yes: bool) -> None:
     click.echo("\n完成：除上述手动项外，设备无任何残留。")
 
 
+@cli.command()
+@click.option("--dir", "install_dir_opt", type=click.Path(exists=True, file_okay=False, path_type=Path),
+              default=None, help="要更新的 numalarm 安装目录（默认为当前代码所在安装目录）")
+def update(install_dir_opt: Optional[Path]) -> None:
+    """检查并更新 numalarm：有新版本才更新（保留 config.yaml 与校准模板），否则提示已最新。"""
+    install_dir = install_dir_opt.resolve() if install_dir_opt else Path(__file__).resolve().parents[2]
+    if not (install_dir / ".git").exists():
+        click.echo(f"目录 {install_dir} 不是 git 克隆安装，无法自动更新。")
+        click.echo("- pip 安装的用户：pip install --upgrade numalarm")
+        click.echo("- 手动下载的用户：重新下载覆盖（保留 config.yaml 与 assets 下你校准的模板）")
+        sys.exit(1)
+
+    def _git(*args: str) -> str:
+        try:
+            r = subprocess.run(["git", *args], cwd=str(install_dir), capture_output=True,
+                               text=True, encoding="utf-8", errors="replace")
+        except FileNotFoundError as exc:  # git 不在 PATH
+            raise RuntimeError("未找到 git 命令") from exc
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout or "git 命令失败").strip())
+        return (r.stdout or "").strip()
+
+    click.echo("正在检查更新…")
+    try:
+        _git("fetch", "origin")
+        local = _git("rev-parse", "HEAD")
+        branch = _git("rev-parse", "--abbrev-ref", "HEAD") or "main"
+        remote = _git("rev-parse", f"origin/{branch}")
+    except RuntimeError as exc:
+        click.echo(f"检查更新失败：{exc}")
+        sys.exit(1)
+
+    if local == remote:
+        click.echo(f"已是最新版本（v{__version__}），无需更新。")
+        return
+
+    click.echo(f"发现新版本（{local[:7]} -> {remote[:7]}），开始更新…")
+
+    # 1. 备份用户资产（config.yaml 与校准模板）
+    backup_root = ConfigManager.state_dir() / "backups" / time.strftime("%Y%m%d-%H%M%S")
+    backup_root.mkdir(parents=True, exist_ok=True)
+    protected = ["config.yaml", "assets/voice_button_sample.png", "assets/call_ringing_sample.png"]
+    for rel in protected:
+        src = install_dir / rel
+        if src.is_file():
+            dst = backup_root / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+    click.echo(f"用户配置与模板已备份：{backup_root}")
+
+    # 2. 还原 tracked 文件的本地改动（已备份），避免 pull 冲突
+    try:
+        if _git("status", "--porcelain"):
+            _git("checkout", "--", ".")
+    except RuntimeError as exc:
+        click.echo(f"更新失败（无法恢复本地改动）：{exc}")
+        sys.exit(1)
+
+    # 3. 拉取最新代码
+    try:
+        _git("pull", "--ff-only", "origin", branch)
+    except RuntimeError as exc:
+        click.echo(f"更新失败：{exc}")
+        click.echo(f"你的 config.yaml 与校准模板已备份于：{backup_root}")
+        sys.exit(1)
+
+    # 4. 恢复用户资产（校准版优先），上游模板与用户版本不一致时另存备份供对比
+    restored = []
+    for rel in ("config.yaml", "assets/voice_button_sample.png", "assets/call_ringing_sample.png"):
+        user_copy = backup_root / rel
+        if not user_copy.is_file():
+            continue
+        r = subprocess.run(["git", "show", f"{remote}:{rel}"], cwd=str(install_dir), capture_output=True)
+        upstream_bytes = r.stdout if r.returncode == 0 and r.stdout else None
+        user_bytes = user_copy.read_bytes()
+        if upstream_bytes is not None and upstream_bytes != user_bytes:
+            upstream_copy = backup_root / "upstream" / rel
+            upstream_copy.parent.mkdir(parents=True, exist_ok=True)
+            upstream_copy.write_bytes(upstream_bytes)
+            click.echo(f"上游「{rel}」与你的版本不同：已保留你的校准版，上游版本另存于 {upstream_copy}")
+        dst = install_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(user_copy, dst)
+        restored.append(rel)
+    if restored:
+        click.echo("已恢复你的配置与校准模板：" + "、".join(restored))
+
+    # 5. 同步虚拟环境依赖
+    venv_dir = install_dir / ".venv"
+    venv_python = venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / "python.exe"
+    if venv_python.is_file():
+        click.echo("正在同步虚拟环境依赖…")
+        r = subprocess.run([str(venv_python), "-m", "pip", "install", "-r", "requirements.txt"],
+                           cwd=str(install_dir), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        tail = (r.stdout or r.stderr or "").strip().splitlines()[-3:]
+        for line in tail:
+            click.echo(f"  {line}")
+    else:
+        click.echo("未检测到虚拟环境（.venv），跳过依赖同步")
+
+    # 6. 刷新已有宿主上的 hook 命令（不扩大注册范围）
+    _register_hooks(_hook_command(), [p for p in KNOWN_HOSTS.values() if p.is_file()], create_missing=False)
+
+    # 7. 报告新版本
+    try:
+        init_text = (install_dir / "numalarm" / "__init__.py").read_text(encoding="utf-8")
+        m = re.search(r'__version__\s*=\s*"([^"]+)"', init_text)
+        new_version = m.group(1) if m else "未知"
+    except OSError:
+        new_version = "未知"
+    click.echo(f"更新完成：v{__version__} -> v{new_version}")
+    click.echo("建议：运行 numalarm test <目标> 校准；重启宿主会话使技能更新生效。")
+
+
 def main() -> None:
     """CLI 入口（pyproject.toml console_scripts 指向此处）。"""
     cli()
@@ -468,8 +585,16 @@ def hook_install(hosts: Optional[str], settings_paths: tuple) -> None:
     if not targets:
         click.echo("未探测到已安装的兼容宿主（settings.json 不存在）；可用 --host 或 --settings 指定。")
         sys.exit(1)
+    _register_hooks(_hook_command(), targets, create_missing=True)
+    click.echo("重启对应宿主会话后生效。移除：numalarm hook uninstall")
 
-    cmd = _hook_command()
+
+def _register_hooks(cmd: str, targets: List[Path], create_missing: bool) -> None:
+    """向目标 settings.json 注册/更新 numalarm hook。
+
+    :param create_missing: True 时在无 numalarm 条目的宿主上新增注册；
+        False 时仅更新已存在条目的命令（供版本更新刷新使用，不扩大注册范围）。
+    """
     for settings_path in targets:
         raw = ""
         data: dict = {}
@@ -502,7 +627,7 @@ def hook_install(hosts: Optional[str], settings_paths: tuple) -> None:
                         if isinstance(h, dict) and "numalarm" in h.get("command", ""):
                             h["command"] = cmd
                             updated = True
-            if not updated and not any(_entry_has_numalarm(e) for e in entries):
+            if not updated and create_missing and not any(_entry_has_numalarm(e) for e in entries):
                 entries.append(_hook_entry(cmd))
                 updated = True
             if updated:
@@ -520,8 +645,6 @@ def hook_install(hosts: Optional[str], settings_paths: tuple) -> None:
             click.echo(f"[失败] {settings_path} 写入失败：{exc}")
             continue
         click.echo(f"[OK] {settings_path} 已注册/更新 hook：{', '.join(changed)}（备份：{backup.name}）")
-
-    click.echo("重启对应宿主会话后生效。移除：numalarm hook uninstall")
 
 
 def _remove_numalarm_hooks(targets: List[Path]) -> None:

@@ -132,6 +132,7 @@ numalarm call --silent -m "任务中断：需要你在方案 A/B 之间选择"
 - Agent 停止路径建议用 `--silent`，避免污染任务输出
 - `call_qq` 默认 `auto=True`：用户正在电脑前（键鼠空闲低于 presence.idle_seconds）时自动跳过拨打，离开电脑才真正响铃——无需用户手动开关
 - 零污染设计：依赖隔离在技能目录的独立虚拟环境，`numalarm uninstall` 一键清理运行时残留（hook/快捷方式/状态），删除技能目录即完全移除
+- 版本更新：`numalarm update` 先检查远端有无新版本（无则提示已最新），更新时自动保留 config.yaml 与校准模板、同步虚拟环境依赖并刷新 hook
 
 **能力边界**：以上约定依赖 Agent 在停止前主动执行；Agent 被强制杀死/崩溃无法自报的极端场景，用宿主 Hook 兜底——`numalarm hook install` 向兼容 hooks 规范（settings.json）的 Agent 宿主的 Notification / PermissionRequest 事件注册静默拨打（自动探测常见宿主，其他宿主用 `--settings` 指定；`numalarm hook uninstall` 移除）。
 

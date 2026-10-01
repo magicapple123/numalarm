@@ -75,6 +75,9 @@ print('example config ok:', cfg.server.port)"
 | TC-119 | 接听后语音提醒 | 安装虚拟声卡 + QQ 麦克风设为其输入端 + `media.speak_on_answer: true`，拨打并接听 | 接听后自动播放提醒语音 -> 自动挂断 -> code=200，data.voice_played=true |
 | TC-120 | 语音提醒降级 | 未安装虚拟声卡 + `speak_on_answer: true`，拨打并接听 | 播放失败如实记录 -> code=200，data.voice_played=false，通话保持 |
 | TC-121 | 语音合成自检 | `python -c` 调用 voice.synthesize_to_file 生成 wav | 文件生成成功（静默，不外放） |
+| TC-122 | 更新-无新版本 | `numalarm update`（远端与本地一致） | 提示「已是最新版本，无需更新」，不做任何改动 |
+| TC-123 | 更新-有新版本 | 远端推送新提交后执行 `numalarm update` | 备份 config/模板 -> 拉取 -> 同步依赖 -> 刷新 hook -> 恢复用户 config 与校准模板 -> 报告版本变化 |
+| TC-124 | 更新-秒拒保护 | 校准模板被上游更新的情况下更新 | 用户校准版优先保留，上游版本另存于备份目录 upsteam/ 供对比 |
 
 ## 4. HTTP 接口
 
