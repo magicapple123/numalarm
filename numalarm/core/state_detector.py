@@ -54,8 +54,35 @@ def find_windows(title_substring: str) -> List[Dict[str, Any]]:
     return results
 
 
+def _clamp_to_virtual_screen(win) -> None:
+    """若窗口超出虚拟桌面范围（用户拖出屏幕），自动移回可视区域。
+
+    防止聊天工具条/按钮位于屏幕之外导致图片匹配与点击失效。
+    """
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        vx = user32.GetSystemMetrics(76)   # SM_XVIRTUALSCREEN
+        vy = user32.GetSystemMetrics(77)   # SM_YVIRTUALSCREEN
+        vw = user32.GetSystemMetrics(78)   # SM_CXVIRTUALSCREEN
+        vh = user32.GetSystemMetrics(79)   # SM_CYVIRTUALSCREEN
+        if vw <= 0 or vh <= 0:
+            return
+        new_x = min(max(win.left, vx), vx + vw - win.width)
+        new_y = min(max(win.top, vy), vy + vh - win.height)
+        if new_x != win.left or new_y != win.top:
+            win.moveTo(int(new_x), int(new_y))
+            logger.info("窗口超出屏幕范围，已自动移回可视区域")
+    except Exception as exc:  # noqa: BLE001 非 Windows / 调整失败时静默跳过
+        logger.debug("窗口位置调整失败：%s", exc)
+
+
 def activate_window(title_substring: str) -> Optional[Dict[str, Any]]:
-    """激活（前置）第一个标题匹配的窗口并返回其信息；失败返回 None。"""
+    """激活（前置）第一个标题匹配的窗口并返回其信息；失败返回 None。
+
+    窗口若被拖出屏幕范围，会先自动移回可视区域。
+    """
     import pygetwindow as gw
 
     for win in gw.getWindowsWithTitle(title_substring):
@@ -64,6 +91,7 @@ def activate_window(title_substring: str) -> Optional[Dict[str, Any]]:
                 win.restore()
             win.activate()
             time.sleep(0.3)
+            _clamp_to_virtual_screen(win)
             return {
                 "title": win.title,
                 "left": int(win.left),

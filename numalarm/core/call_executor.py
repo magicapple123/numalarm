@@ -345,6 +345,8 @@ class CallExecutor:
             )
         attempts = max(int(m.max_retry), 0) + 1
         for i in range(1, attempts + 1):
+            # 未命中视为一次失败（可重试）；组件异常才直接判定为配置问题
+            img_not_found = getattr(pag, "ImageNotFoundException", None)
             try:
                 box = pag.locateCenterOnScreen(
                     str(VOICE_BUTTON_SAMPLE),
@@ -352,8 +354,15 @@ class CallExecutor:
                     confidence=float(m.confidence),
                     grayscale=bool(m.grayscale),
                 )
-            except Exception as exc:  # noqa: BLE001 confidence 匹配依赖 opencv-python
-                raise VoiceButtonNotFoundError(f"图片匹配执行失败（通常为缺少 opencv-python）：{exc}") from exc
+            except Exception as exc:  # noqa: BLE001
+                if img_not_found is not None and isinstance(exc, img_not_found):
+                    # 新版 pyscreeze 用空消息异常表示「未找到」——按未命中处理
+                    logger.warning("语音按钮未匹配（第 %d/%d 次）", i, attempts)
+                    time.sleep(self.config.timing.action_wait)
+                    continue
+                raise VoiceButtonNotFoundError(
+                    f"图片匹配执行失败（通常为缺少 opencv-python）：{exc}"
+                ) from exc
             if box is not None:
                 logger.info("语音按钮匹配成功（第 %d/%d 次尝试）：%s", i, attempts, (box.x, box.y))
                 return int(box.x), int(box.y)

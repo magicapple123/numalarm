@@ -61,9 +61,8 @@ def call(target: Optional[str], timeout: Optional[int], silent: bool, reason: Op
     kwargs = {"timeout": timeout} if timeout is not None else {}
     if reason:
         kwargs["reason"] = reason
-    if auto:
-        kwargs["auto"] = True
-    result = call_qq(target=target, silent=silent, **kwargs)
+    # 人工命令默认不受在位检测限制；显式 --auto 才启用检测
+    result = call_qq(target=target, silent=silent, auto=auto, **kwargs)
     _echo_result(result, quiet=silent)
     sys.exit(0 if result.get("code") == CODE_SUCCESS else 1)
 
