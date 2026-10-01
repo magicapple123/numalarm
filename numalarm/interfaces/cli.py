@@ -400,6 +400,8 @@ def uninstall(yes: bool) -> None:
     click.echo("- 若曾执行 pip install -e .：运行 pip uninstall numalarm")
     click.echo("- 若曾安装虚拟声卡 VB-Cable：先在声音设置切回真实麦克风/扬声器，"
                "再到 Windows「设置 - 应用」卸载 VB-Audio Virtual Cable")
+    click.echo("- Agent 长期记忆：numalarm 无法访问宿主的记忆系统，"
+               "请在对话中让 Agent 删除其记忆里登记的 numalarm 约定与路径")
     click.echo("\n完成：除上述手动项外，设备无任何残留。")
 
 

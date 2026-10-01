@@ -115,7 +115,7 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
    - 注册打断自动拨打 hook（numalarm hook install，重复运行只刷新命令不重复注册）
    - 创建桌面快捷方式（numalarm shortcut create <目标> --silent，同名会先询问是否覆盖）
 
-10. 告知我卸载方式：numalarm uninstall 一站式清理 + 删除技能目录；若装过虚拟声卡需在 Windows「设置-应用」卸载
+10. 告知我卸载方式：numalarm uninstall 一站式清理 + 删除技能目录；若装过虚拟声卡需在 Windows「设置-应用」卸载；卸载后请把我长期记忆里登记的 numalarm 约定与路径删除（这是你的记忆系统，只能由你清理）
 
 11. 以后任何时候我说「更新 numalarm」，运行 numalarm update：先检查远端有无新版本——没有就告诉我当前已是最新、不需要更新；有则更新（自动保留我的 config.yaml 与校准模板），完成后运行 doctor 与 test 验证
 
@@ -312,6 +312,7 @@ numalarm update
 | 宿主 Hook 注册 | `numalarm hook uninstall`（或 `numalarm uninstall` 自动处理） |
 | 桌面快捷方式 | `numalarm shortcut delete <名称>`（或 `numalarm uninstall` 逐个确认删除） |
 | 运行时状态（`~/.numalarm`：防抖记录与锁文件） | `numalarm uninstall` 自动清理 |
+| Agent 长期记忆中的约定登记 | 由 Agent 自行删除（`numalarm uninstall` 结束时会提醒；numalarm 无法访问宿主的记忆系统） |
 | 技能/仓库目录（含 `.venv` 虚拟环境、`config.yaml`、模板） | 直接删除整个目录即可（建议最后删） |
 | pip 安装的 numalarm 包（若用过 `pip install -e .`） | `pip uninstall numalarm` |
 | 虚拟声卡 VB-Cable（可选装） | 先切回真实麦克风/扬声器，再到 Windows「设置 → 应用」卸载 VB-Audio Virtual Cable |
