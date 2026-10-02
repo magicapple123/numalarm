@@ -17,13 +17,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import click
 
@@ -507,7 +508,8 @@ def update(install_dir_opt: Optional[Path]) -> None:
         click.echo("未检测到虚拟环境（.venv），跳过依赖同步")
 
     # 6. 刷新已有宿主上的 hook 命令（不扩大注册范围）
-    _register_hooks(_hook_command(), [p for p in KNOWN_HOSTS.values() if p.is_file()], create_missing=False)
+    _register_hooks({event: _hook_command() for event in HOOK_EVENTS},
+                    [p for p in KNOWN_HOSTS.values() if p.is_file()], create_missing=False)
 
     # 7. 报告新版本
     try:
@@ -518,6 +520,164 @@ def update(install_dir_opt: Optional[Path]) -> None:
         new_version = "未知"
     click.echo(f"更新完成：v{__version__} -> v{new_version}")
     click.echo("建议：运行 numalarm test <目标> 校准；重启宿主会话使技能更新生效。")
+
+
+# ----------------------------------------------------------------------
+# 看门狗：Agent 硬崩溃兜底（心跳超时自动拨打）
+# ----------------------------------------------------------------------
+WATCHDOG_TASK_NAME = "numalarm-watchdog"
+
+
+@cli.command()
+@click.option("--clear", is_flag=True, help="清除心跳（任务正常结束/宿主正常关闭时调用）")
+def heartbeat(clear: bool) -> None:
+    """刷新/清除任务心跳：看门狗据此判断 Agent 是否硬崩溃（跨宿主通用）。"""
+    hb = ConfigManager.state_dir() / "heartbeat.json"
+    if clear:
+        hb.unlink(missing_ok=True)
+        click.echo("心跳已清除")
+        return
+    hb.parent.mkdir(parents=True, exist_ok=True)
+    hb.write_text(json.dumps({"ts": time.time(), "pid": os.getpid()}), encoding="utf-8")
+    click.echo("心跳已刷新")
+
+
+@cli.command("watchdog-run")
+@click.option("--silent", "-s", is_flag=True, help="静默执行（计划任务调用时使用）")
+def watchdog_run(silent: bool) -> None:
+    """内部命令：看门狗单次检查（由计划任务每分钟调用，勿手动运行）。"""
+    cfg = ConfigManager.instance().config
+    w = cfg.watchdog
+    if not w.enabled:
+        return
+    hb_path = ConfigManager.state_dir() / "heartbeat.json"
+    if not hb_path.is_file():
+        return  # 无任务在跑
+    try:
+        ts = float(json.loads(hb_path.read_text(encoding="utf-8")).get("ts", 0))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return
+    age = time.time() - ts
+    if age < float(w.stale_seconds):
+        return  # 心跳新鲜：Agent 正常
+    from numalarm.core.state_detector import is_qq_running
+
+    if not is_qq_running(cfg.qq_process_name):
+        return  # QQ 都没开（设备关机/未登录），打了也没意义
+    from numalarm.interfaces.sdk import call_qq
+
+    result = call_qq(
+        reason=f"看门狗：Agent 心跳超时 {int(age)} 秒，疑似任务异常中断",
+        auto=True,  # 人在电脑前自动跳过
+    )
+    if result.get("code") == CODE_SUCCESS:
+        # 已触达 / 已跳过 / 已达上限：清心跳，防止每分钟重复触发
+        hb_path.unlink(missing_ok=True)
+    if not silent:
+        click.echo(f"[{result.get('code')}] {result.get('message')}")
+
+
+@cli.group()
+def watchdog() -> None:
+    """看门狗：Agent 硬崩溃兜底（计划任务每分钟检查心跳）。"""
+
+
+def _watchdog_script_path() -> Path:
+    return ConfigManager.state_dir() / "watchdog-task.cmd"
+
+
+def _watchdog_script_text() -> str:
+    install_dir = Path(__file__).resolve().parents[2]
+    python_exe = Path(sys.executable).resolve()
+    return (
+        "@echo off\r\n"
+        f'cd /d "{install_dir}"\r\n'
+        f'"{python_exe}" -m numalarm.interfaces.cli watchdog-run --silent\r\n'
+    )
+
+
+@watchdog.command("install")
+def watchdog_install() -> None:
+    """注册每分钟一次的看门狗计划任务（Windows 计划任务 / 其他平台 crontab）。"""
+    if sys.platform == "win32":
+        script = _watchdog_script_path()
+        script.write_text(_watchdog_script_text(), encoding="utf-8")
+        subprocess.run(["schtasks", "/Delete", "/F", "/TN", WATCHDOG_TASK_NAME],
+                       capture_output=True)  # 幂等：先删旧任务（不存在时报错忽略）
+        r = subprocess.run(
+            ["schtasks", "/Create", "/F", "/TN", WATCHDOG_TASK_NAME, "/SC", "MINUTE", "/MO", "1",
+             "/TR", f'"{script}"'],
+            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            click.echo(f"[失败] 计划任务注册失败：{(r.stderr or r.stdout).strip()}")
+            sys.exit(1)
+        click.echo(f"[OK] 计划任务 {WATCHDOG_TASK_NAME} 已注册（每分钟检查一次，脚本：{script}）")
+    else:
+        cron_line = f"* * * * * cd '{Path(__file__).resolve().parents[2]}' && '{sys.executable}' -m numalarm.interfaces.cli watchdog-run --silent"
+        r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        lines = (r.stdout or "").splitlines() if r.returncode == 0 else []
+        if any("numalarm" in line for line in lines):
+            click.echo("[跳过] crontab 中已存在 numalarm 看门狗")
+        else:
+            new_crontab = "\n".join(lines + [cron_line]) + "\n"
+            p = subprocess.run(["crontab", "-"], input=new_crontab, text=True, capture_output=True)
+            if p.returncode != 0:
+                click.echo(f"[失败] crontab 写入失败：{(p.stderr or '').strip()}")
+                sys.exit(1)
+            click.echo("[OK] crontab 看门狗已注册（每分钟检查一次）")
+
+    # 心跳来源注册：PreToolUse 刷新心跳 / SessionEnd 清心跳
+    hb_cmd = _hook_cmdline("heartbeat")
+    hb_clear_cmd = _hook_cmdline("heartbeat --clear")
+    _register_hooks({"PreToolUse": hb_cmd, "SessionEnd": hb_clear_cmd},
+                    [p for p in KNOWN_HOSTS.values() if p.is_file()], create_missing=True)
+    click.echo("心跳来源：兼容宿主由 PreToolUse hook 自动刷新；"
+               "无 hook 机制的宿主请在长任务中定期运行 numalarm heartbeat（见 SKILL.md）")
+    click.echo("移除：numalarm watchdog uninstall")
+
+
+@watchdog.command("uninstall")
+def watchdog_uninstall() -> None:
+    """移除看门狗计划任务与心跳 hook 注册（保留拨打类 hook）。"""
+    if sys.platform == "win32":
+        r = subprocess.run(["schtasks", "/Delete", "/F", "/TN", WATCHDOG_TASK_NAME],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        click.echo("[OK] 计划任务已移除" if r.returncode == 0 else "[跳过] 计划任务不存在")
+        _watchdog_script_path().unlink(missing_ok=True)
+    else:
+        r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        if r.returncode == 0:
+            kept = [line for line in (r.stdout or "").splitlines() if "numalarm" not in line]
+            subprocess.run(["crontab", "-"], input="\n".join(kept) + "\n", text=True, capture_output=True)
+        click.echo("[OK] crontab 看门狗已移除")
+    _remove_numalarm_hooks([p for p in KNOWN_HOSTS.values() if p.is_file()])
+    click.echo("心跳 hook 已移除（拨打类 hook 不受影响）")
+
+
+@watchdog.command("status")
+def watchdog_status() -> None:
+    """查看看门狗计划任务与心跳 hook 注册状态。"""
+    if sys.platform == "win32":
+        r = subprocess.run(["schtasks", "/Query", "/TN", WATCHDOG_TASK_NAME],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        click.echo(f"计划任务 {WATCHDOG_TASK_NAME}: " + ("已注册" if r.returncode == 0 else "未注册"))
+    else:
+        r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        found = r.returncode == 0 and any("numalarm" in line for line in (r.stdout or "").splitlines())
+        click.echo("crontab 看门狗: " + ("已注册" if found else "未注册"))
+    for settings_path in (p for p in KNOWN_HOSTS.values() if p.is_file()):
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        hb_found = []
+        for event in ("PreToolUse", "SessionEnd"):
+            for entry in (data.get("hooks") or {}).get(event) or []:
+                if _entry_has_numalarm(entry):
+                    hb_found.append(event)
+                    break
+        if hb_found:
+            click.echo(f"{settings_path.parent.name}: 心跳 hook 已注册（{'、'.join(hb_found)}）")
 
 
 def main() -> None:
@@ -538,22 +698,24 @@ KNOWN_HOSTS = {
 }
 
 
-def _hook_command() -> str:
-    """生成 hook 触发命令：自动化静默拨打 default_target。
-
-    路径由当前运行环境生成（pythonw 无黑框；NUMALARM_CONFIG 保证任意
-    工作目录下都能找到配置；--auto 表示受用户在位检测控制，人在电脑前不打扰）。
-    hook 由宿主经 shell 执行，采用 POSIX 写法。
-    """
+def _hook_cmdline(cli_args: str) -> str:
+    """生成 hook 命令行：cd 固定到安装目录（保证 numalarm 包可导入），配置路径写死。"""
     cfg = ConfigManager.instance()
     config_path = (cfg.config_path or (Path.cwd() / "config.yaml")).resolve()
     python_exe = Path(sys.executable)
     pythonw = python_exe.with_name("pythonw.exe")
     py = (pythonw if pythonw.is_file() else python_exe).resolve()
+    install_dir = Path(__file__).resolve().parents[2]
     return (
+        f"cd '{install_dir.as_posix()}' && "
         f"NUMALARM_CONFIG='{config_path.as_posix()}' '{py.as_posix()}' "
-        f"-m numalarm.interfaces.cli call --silent --auto"
+        f"-m numalarm.interfaces.cli {cli_args}"
     )
+
+
+def _hook_command() -> str:
+    """生成拨打类 hook（Notification/PermissionRequest/Stop）命令：静默自动拨打 default_target。"""
+    return _hook_cmdline("call --silent --auto")
 
 
 def _hook_entry(cmd: str) -> dict:
@@ -592,14 +754,15 @@ def hook_install(hosts: Optional[str], settings_paths: tuple) -> None:
     if not targets:
         click.echo("未探测到已安装的兼容宿主（settings.json 不存在）；可用 --host 或 --settings 指定。")
         sys.exit(1)
-    _register_hooks(_hook_command(), targets, create_missing=True)
+    _register_hooks({event: _hook_command() for event in HOOK_EVENTS}, targets, create_missing=True)
     click.echo("重启对应宿主会话后生效。移除：numalarm hook uninstall")
 
 
-def _register_hooks(cmd: str, targets: List[Path], create_missing: bool) -> None:
+def _register_hooks(event_cmds: Dict[str, str], targets: List[Path], create_missing: bool) -> None:
     """向目标 settings.json 注册/更新 numalarm hook。
 
-    :param create_missing: True 时在无 numalarm 条目的宿主上新增注册；
+    :param event_cmds: 事件名 -> hook 命令 的映射
+    :param create_missing: True 时在无 numalarm 条目的事件上新增注册；
         False 时仅更新已存在条目的命令（供版本更新刷新使用，不扩大注册范围）。
     """
     for settings_path in targets:
@@ -622,7 +785,7 @@ def _register_hooks(cmd: str, targets: List[Path], create_missing: bool) -> None
             continue
 
         changed = []
-        for event in HOOK_EVENTS:
+        for event, cmd in event_cmds.items():
             entries = hooks_cfg.setdefault(event, [])
             if not isinstance(entries, list):
                 continue
@@ -655,7 +818,7 @@ def _register_hooks(cmd: str, targets: List[Path], create_missing: bool) -> None
 
 
 def _remove_numalarm_hooks(targets: List[Path]) -> None:
-    """从指定 settings.json 中移除 numalarm 注册的 hook（只删自身条目，其余配置保留）。"""
+    """从指定 settings.json 中移除全部 numalarm 注册的 hook（扫描所有事件，只删自身条目）。"""
     for settings_path in targets:
         if not settings_path.is_file():
             continue
@@ -667,7 +830,7 @@ def _remove_numalarm_hooks(targets: List[Path]) -> None:
             continue
         hooks_cfg = data.get("hooks") or {}
         removed = []
-        for event in HOOK_EVENTS:
+        for event in list(hooks_cfg.keys()):
             entries = hooks_cfg.get(event) or []
             kept = [e for e in entries if not _entry_has_numalarm(e)]
             if len(kept) != len(entries):

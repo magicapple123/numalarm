@@ -92,6 +92,17 @@ class MediaConfig(BaseModel):
     speak_timeout: float = Field(30.0, description="语音播放超时（秒）")
 
 
+class WatchdogConfig(BaseModel):
+    """看门狗：Agent 心跳超时（疑似硬崩溃）时自动拨打兜底。"""
+
+    enabled: bool = Field(True, description="看门狗开关")
+    stale_seconds: float = Field(
+        300.0,
+        description="心跳超时阈值（秒）：心跳文件超过该时长未刷新且 QQ 在运行，判定 Agent 异常并拨打；"
+        "需大于 Agent 纯思考（不调工具）的最长间隙",
+    )
+
+
 class PresenceConfig(BaseModel):
     """用户在位检测：人在电脑前时跳过拨打（仅对自动化触发生效，手动命令不受限）。"""
 
@@ -158,6 +169,7 @@ class NumAlarmConfig(BaseModel):
     retry: RetryConfig = RetryConfig()
     presence: PresenceConfig = PresenceConfig()
     media: MediaConfig = MediaConfig()
+    watchdog: WatchdogConfig = WatchdogConfig()
     log: LogConfig = LogConfig()
     server: ServerConfig = ServerConfig()
     shortcut: ShortcutConfig = ShortcutConfig()
