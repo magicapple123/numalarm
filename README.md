@@ -167,7 +167,9 @@ copy config.example.yaml config.yaml    # 或运行交互式向导：numalarm in
 #    以及通话窗口「等待对方接听」文字覆盖 assets/call_ringing_sample.png
 
 # 3. 校准验证（搜索好友 + 打开聊天窗 + 识别按钮，不拨打）
+#    校准前建议先关闭该好友的聊天窗口（避免误命中已打开的旧会话）
 numalarm test 张三
+# 第 3 步 detail 出现「未确认会话」= 搜索可能未命中，需检查偏移或昵称
 # 全部 PASS 后即可正式拨打：
 numalarm call 张三
 ```

@@ -128,9 +128,11 @@ class QQController:
         chat = state_detector.activate_window(keyword, process_name=self.config.qq_process_name)
         if chat is not None:
             logger.info("聊天窗口已打开：%s", chat["title"])
-            return chat
+            # confirmed=True：独立窗口标题含目标关键词，会话命中已确认
+            return {**chat, "confirmed": True}
         panel = state_detector.activate_window(self.config.qq_window_title, process_name=self.config.qq_process_name)
         if panel is None:
             raise TargetNotFoundError(f"未找到目标「{keyword}」对应的聊天窗口，请确认昵称/备注或别名配置")
         logger.info("未检测到独立聊天窗口，使用主面板内嵌会话：%s", panel["title"])
-        return panel
+        # confirmed=False：主面板回退无法确认会话已命中目标（可能搜索未命中）
+        return {**panel, "confirmed": False}

@@ -4,7 +4,7 @@ description: 牛马铃——QQ 语音通话强提醒 Skill。基于桌面 UI 自
 license: MIT
 compatibility: 仅支持 Windows 10/11 + PC 版 QQ（已登录、桌面解锁）；Python 3.10+；不支持网页版/Mac/移动端
 metadata:
-  version: 1.1.0
+  version: 1.1.1
   display-name: 牛马铃
   keywords: [qq, voice-call, phone-notification, ui-automation, agent-alert]
 ---

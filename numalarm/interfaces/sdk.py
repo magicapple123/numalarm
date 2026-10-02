@@ -25,6 +25,7 @@ def call_qq(
     silent: bool = False,
     reason: str = "",
     auto: bool = True,
+    force: bool = False,
 ) -> Dict[str, Any]:
     """向指定好友发起 QQ 语音通话（完整拨打流程，含无人接听自动重拨）。
 
@@ -40,11 +41,13 @@ def call_qq(
     :param auto: 自动化触发标记（默认 True，Agent 集成使用默认值）——启用「用户在位
                  检测」：用户正在电脑前（键鼠空闲低于 presence.idle_seconds）时跳过
                  拨打；人工脚本显式拨打可传 False 跳过检测
+    :param force: True 时单次豁免防抖（默认防抖拦截窗口内重复拨打）
     :return: 统一结果字典 ``{"code": int, "message": str, "data": dict}``；
-             data.attempts 为实际拨打次数，data.outcome 为触达结果说明
+             data.attempts 为实际拨打次数，data.outcome 为触达结果说明，
+             data.judgment 为结果判定方式（template=状态模板 / threshold_fallback=时长回退）
     """
     executor = CallExecutor(silent=silent)
-    return executor.call(target=target, timeout=float(timeout), reason=reason, auto=auto)
+    return executor.call(target=target, timeout=float(timeout), reason=reason, auto=auto, force=force)
 
 
 def test_call(target: Optional[str] = None, silent: bool = False) -> Dict[str, Any]:

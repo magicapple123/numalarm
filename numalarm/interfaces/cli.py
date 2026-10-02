@@ -75,7 +75,10 @@ def cli() -> None:
 @click.option("--silent", "-s", is_flag=True, help="静默执行：无控制台输出，完成自动退出")
 @click.option("--reason", "-m", default=None, help="拨打原因（记录到日志与结果，用于 Agent 集成追溯）")
 @click.option("--auto", is_flag=True, help="自动化触发：受用户在位检测控制（人在电脑前则跳过；人工命令默认不检测）")
-def call(target: Optional[str], timeout: Optional[int], silent: bool, reason: Optional[str], auto: bool) -> None:
+@click.option("--force", is_flag=True, help="单次豁免防抖（默认防抖拦截窗口内重复拨打；互斥与在位检测不受影响）")
+@click.option("--json", "as_json", is_flag=True, help="以单行 JSON 输出完整结构化结果（含失败原因，便于程序解析；失败仍退出码 1）")
+def call(target: Optional[str], timeout: Optional[int], silent: bool, reason: Optional[str],
+         auto: bool, force: bool, as_json: bool) -> None:
     """向目标好友拨打 QQ 语音通话（TARGET 支持昵称/备注/别名；不传则用 default_target）。"""
     from numalarm.interfaces.sdk import call_qq
 
@@ -83,8 +86,11 @@ def call(target: Optional[str], timeout: Optional[int], silent: bool, reason: Op
     if reason:
         kwargs["reason"] = reason
     # 人工命令默认不受在位检测限制；显式 --auto 才启用检测
-    result = call_qq(target=target, silent=silent, auto=auto, **kwargs)
-    _echo_result(result, quiet=silent)
+    result = call_qq(target=target, silent=silent or as_json, auto=auto, force=force, **kwargs)
+    if as_json:
+        click.echo(json.dumps(result, ensure_ascii=False))
+    else:
+        _echo_result(result, quiet=silent)
     sys.exit(0 if result.get("code") == CODE_SUCCESS else 1)
 
 
@@ -224,6 +230,28 @@ def doctor() -> None:
             check("pywin32（语音提醒）", True)
         except ImportError:
             check("pywin32（语音提醒）", False, "pip install pywin32（不影响核心拨打，仅影响接听后语音提醒）")
+
+    # 6. 音频默认设备（启用语音提醒时：检查虚拟声卡抢占默认扬声器 / 默认录音指向）
+    media_cfg = ConfigManager.instance().config.media
+    if sys.platform == "win32" and media_cfg.speak_on_answer:
+        try:
+            from numalarm.core.audio_devices import get_default_devices
+
+            playback, capture = get_default_devices()
+            if playback is None and capture is None:
+                check("默认音频设备读取", False, "COM 读取失败，跳过该项")
+            else:
+                occupied = bool(playback) and ("cable" in playback.lower() or "vb-audio" in playback.lower())
+                check("默认扬声器未被虚拟声卡抢占", not occupied,
+                      f"当前默认播放为「{playback}」——系统声音会全部进入虚拟声卡，"
+                      "请在声音设置切回真实扬声器")
+                if capture and "cable output" in capture.lower():
+                    check("默认录音指向（语音提醒）", True, capture)
+                else:
+                    check("默认录音指向（语音提醒）", False,
+                          f"当前为「{capture or '未知'}」——语音提醒需要设为 CABLE Output（真人通话时再切回）")
+        except Exception as exc:  # noqa: BLE001 设备读取失败不影响其余检查
+            check("默认音频设备读取", False, str(exc))
 
     # 6. 配置解析错误可见性（损坏的 config.yaml 会被静默回退默认值）
     load_err = getattr(ConfigManager.instance(), "load_error", None)

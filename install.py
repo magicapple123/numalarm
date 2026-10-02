@@ -180,7 +180,14 @@ def _step_deps(install_dir: Path, log) -> str:
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             tail = "\n".join(((r.stdout or "") + (r.stderr or "")).strip().splitlines()[-8:])
-            raise InstallError(f"依赖安装失败（可尝试 --python 指定其它解释器）：\n{tail}")
+            pyver = subprocess.run([str(py), "--version"], capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace").stdout.strip()
+            hint = ""
+            if "3.13" in pyver or "3.14" in pyver:
+                hint = ("\n    提示：检测到 " + pyver + "。若报错涉及 pywin32==306：该版本无 cp313 wheel，"
+                        "请确认使用 pywin32>=307（本仓库 requirements/pyproject 已修正，"
+                        "旧副本请 git pull 后重试）。")
+            raise InstallError(f"依赖安装失败（可尝试 --python 指定其它解释器）：\n{tail}{hint}")
     log("    依赖就绪")
     return "installed"
 
@@ -449,6 +456,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # ---- 执行 ----
     results: List[Dict[str, Any]] = []
     exit_code = 0
+    deps_failed = False
     for step in steps:
         log(f"\n[{step.key}] {step.desc}")
         if args.dry_run and step.key != "next":
@@ -462,8 +470,23 @@ def main(argv: Optional[List[str]] = None) -> int:
         except InstallError as exc:
             log(f"    [失败] {exc}")
             results.append({"key": step.key, "status": "failed", "detail": str(exc)})
-            _finish(args, install_dir, results, 1, log)
-            return 1
+            # 单步失败不中断整个安装流程：后续步骤各自尝试，依赖类失败会连锁失败并逐项标注
+            if step.key == "deps":
+                deps_failed = True
+        except Exception as exc:  # noqa: BLE001 未预期异常同样不中断后续步骤
+            log(f"    [失败] {type(exc).__name__}: {exc}")
+            results.append({"key": step.key, "status": "failed", "detail": str(exc)})
+
+    # 依赖失败的连锁标注：venv 依赖未就绪时，后续依赖 numalarm 的步骤必然失败
+    if deps_failed:
+        exit_code = 1
+        for item in results:
+            if item.get("status") == "done" and item.get("key") in ("hooks", "watchdog", "consolidate", "next"):
+                item["status"] = "skipped"
+                item["detail"] = "依赖安装失败，本步骤跳过"
+                log(f"    [跳过] {item['key']}（依赖未就绪）")
+    elif any(r.get("status") == "failed" for r in results):
+        exit_code = 1
 
     # 非交互默认不注册 hook/看门狗（涉及真实拨打）：打印可复制的开启命令
     if not args.dry_run and (not want_hooks or not want_watchdog):

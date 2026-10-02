@@ -1,5 +1,15 @@
 # 更新日志
 
+## v1.1.1（2026-10-02）
+
+社区反馈修复（感谢 [@zhangxingyu-1213](https://github.com/zhangxingyu-1213) 的四份高质量报告）：
+
+- 修复 pywin32==306 无 Python 3.13 wheel 导致的安装/更新失败：requirements / pyproject / install 三处锁定改为 `pywin32>=307`；依赖安装失败不再中断整个安装器流程（后续步骤逐项标注失败/跳过），报错附 Python 3.13 提示（#4）
+- 修复 `numalarm test` 假阳性：第 3 步回退主面板内嵌会话时 detail 明确标注「未确认会话（主面板回退）」，校准输出提示先关闭目标聊天窗口（#2）
+- 拨打结果新增 `data.judgment` 字段：`template`=状态模板精确判定 / `threshold_fallback`=时长阈值回退（附回退原因），判定方式可观测（#3）
+- CLI `call` 新增 `--json`（单行 JSON 输出完整结构化结果，含失败原因，失败退出码 1）与 `--force`（单次豁免防抖）；SDK/HTTP 同步新增 force 参数，HTTP 新增 reason 字段（#3）
+- doctor 新增音频默认设备检查（`media.speak_on_answer=true` 时）：默认扬声器被虚拟声卡抢占、默认录音未指向 CABLE Output 均给出明确提示；零依赖 ctypes 实现（#1）
+
 ## v1.1.0（2026-10-02）
 
 - 新增 `install.py` 一键安装器：仅标准库、幂等可重复执行、`--dry-run` 零副作用、`--yes` 非交互；自动判定当前宿主并只向该宿主注册 hook（非交互默认不注册——涉及真实拨打）

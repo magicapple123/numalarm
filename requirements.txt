@@ -17,4 +17,4 @@ uvicorn==0.34.0              # HTTP 服务运行时
 click==8.1.8                 # CLI 命令行封装
 
 # ===== 可选依赖（Windows 平台自动启用；用于接听后语音提醒的 SAPI 合成与历史快捷方式清理）=====
-pywin32==306; sys_platform == "win32"
+pywin32>=307; sys_platform == "win32"

@@ -155,6 +155,7 @@ class CallExecutor:
         timeout: float = 30.0,
         reason: str = "",
         auto: bool = False,
+        force: bool = False,
     ) -> Dict[str, Any]:
         """执行完整拨打流程，返回统一结果字典（所有异常在内部转换为状态码）。
 
@@ -166,6 +167,8 @@ class CallExecutor:
         :param auto: 自动化触发标记。True 时启用「用户在位检测」——键鼠空闲低于
             ``presence.idle_seconds`` 视为用户正在电脑前，跳过拨打（每轮重拨前复检，
             用户中途回来自动停止重拨）；手动命令传 False 不受检测限制。
+        :param force: True 时单次豁免防抖（默认防抖拦截窗口内重复拨打）；全局互斥
+            与在位检测不受影响。
         """
         start = time.time()
         logger.info("拨打流程开始：target=%r timeout=%ss reason=%r", target, timeout, reason)
@@ -180,8 +183,8 @@ class CallExecutor:
                 raise BusyError()
             dialed = False
             try:
-                # 1. 防抖：同一目标窗口期内仅执行第一次
-                if self.config.debounce.enabled:
+                # 1. 防抖：同一目标窗口期内仅执行第一次（force=True 单次豁免）
+                if self.config.debounce.enabled and not force:
                     remain = self.debounce.check(resolved, self.config.debounce.window_seconds)
                     if remain is not None:
                         raise RateLimitedError(
@@ -341,7 +344,13 @@ class CallExecutor:
             # 步骤 3：搜索好友 / 打开聊天窗口
             try:
                 chat = self.controller.search_friend(resolved)
-                step("搜索好友/打开聊天窗口", True, CODE_SUCCESS, str(chat.get("title", "")))
+                confirmed = bool(chat.get("confirmed", False))
+                detail = str(chat.get("title", ""))
+                if not confirmed:
+                    # 主面板回退：无法确认会话已命中目标（issue #2 假阳性场景）
+                    detail += "（未确认会话：主面板回退，可能未命中目标；校准前建议先关闭该好友的聊天窗口）"
+                    logger.warning("校准第 3 步使用主面板回退，目标会话未确认命中：%s", resolved)
+                step("搜索好友/打开聊天窗口", True, CODE_SUCCESS, detail)
             except NumAlarmError as exc:
                 step("搜索好友/打开聊天窗口", False, exc.code, exc.message)
                 return self._test_result(resolved, steps)
@@ -476,6 +485,10 @@ class CallExecutor:
         - 窗口关闭且全程仍为响铃状态 -> 无人接听（QQ 自然超时）-> 触发重拨
         - 点击后 verify_window_timeout 内窗口未出现 -> 触发失败 -> 触发重拨
         模板缺失或预热持续未命中时，回退为时长阈值启发式（retry.no_answer_seconds）。
+
+        结果 outcome.extra 携带 judgment 字段（template=状态模板精确判定 /
+        threshold_fallback=时长阈值回退判定）与 judgment_reason（回退原因），
+        供调用方在 data 中区分结果的可信度来源。
         """
         win = self._wait_call_window(float(self.config.timing.verify_window_timeout))
         if win is None:
@@ -484,12 +497,23 @@ class CallExecutor:
 
         ring_tpl = ASSET_DIR / "call_ringing_sample.png"
         if ring_tpl.is_file():
+            extra = {**extra, "judgment": "template"}
             outcome = self._monitor_by_ringing_template(ring_tpl, extra)
             if outcome is not None:
                 return outcome
             logger.warning("响铃模板持续未命中（QQ 界面差异或窗口异常），回退为时长阈值判定")
+            extra = {
+                **extra,
+                "judgment": "threshold_fallback",
+                "judgment_reason": "响铃模板持续未命中（QQ 界面差异或窗口异常）",
+            }
         else:
             logger.warning("缺少响铃模板 assets/call_ringing_sample.png，回退为时长阈值判定")
+            extra = {
+                **extra,
+                "judgment": "threshold_fallback",
+                "judgment_reason": "缺少响铃模板 assets/call_ringing_sample.png",
+            }
         return self._monitor_by_threshold(extra)
 
     def _wait_call_window(self, timeout: float) -> Optional[Dict[str, Any]]:

@@ -40,6 +40,8 @@ class CallRequest(BaseModel):
     timeout: int = Field(30, gt=0, description="单次拨打建立阶段超时秒数")
     silent: bool = Field(False, description="静默模式（本次请求不输出控制台日志）")
     auto: bool = Field(True, description="自动化触发标记：True 时受用户在位检测控制（用户在电脑前则跳过）")
+    force: bool = Field(False, description="True 时单次豁免防抖（默认防抖拦截窗口内重复拨打）")
+    reason: str = Field("", description="拨打原因（记录到日志与结果 data，便于追溯）")
 
 
 @app.post("/api/call")
@@ -49,7 +51,10 @@ def api_call(req: CallRequest) -> Dict[str, Any]:
 
     # 服务进程内已初始化日志，禁止每次请求重配置（否则静默请求会影响全局日志）
     executor = CallExecutor(silent=False, configure_logging=False)
-    return executor.call(target=req.target, timeout=float(req.timeout), auto=req.auto)
+    return executor.call(
+        target=req.target, timeout=float(req.timeout), auto=req.auto,
+        force=req.force, reason=req.reason,
+    )
 
 
 @app.get("/api/status")
