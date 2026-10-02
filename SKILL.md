@@ -1,10 +1,10 @@
 ---
 name: numalarm
-description: 牛马铃——QQ 语音通话强提醒 Skill。基于桌面 UI 自动化模拟点击 PC 版 QQ 的语音通话按钮，向指定 QQ 好友拨打语音电话，用于本地 Agent 在任务完成/异常中断时强提醒已离开电脑的用户。提供 Python SDK、HTTP REST（默认端口 18600）、CLI、Windows 桌面快捷方式四种接入方式，内置全局互斥、防抖与统一状态码，一次封装多 Agent 复用。
+description: 牛马铃——QQ 语音通话强提醒 Skill。基于桌面 UI 自动化模拟点击 PC 版 QQ 的语音通话按钮，向指定 QQ 好友拨打语音电话，用于本地 Agent 在任务完成/异常中断时强提醒已离开电脑的用户。提供 Python SDK、HTTP REST（默认端口 18600）、CLI 三种接入方式，内置全局互斥、防抖与统一状态码，一次封装多 Agent 复用。
 license: MIT
 compatibility: 仅支持 Windows 10/11 + PC 版 QQ（已登录、桌面解锁）；Python 3.10+；不支持网页版/Mac/移动端
 metadata:
-  version: 1.0.2
+  version: 1.0.3
   display-name: 牛马铃
   keywords: [qq, voice-call, phone-notification, ui-automation, agent-alert]
 ---
@@ -17,7 +17,7 @@ metadata:
 
 ## 功能特性
 
-- 一次封装、多 Agent 复用：SDK / HTTP / CLI / 桌面快捷方式共用同一核心流程
+- 一次封装、多 Agent 复用：SDK / HTTP / CLI 共用同一核心流程
 - 图片匹配定位语音按钮，置信度可配置，失败自动重试 2 次
 - 全局互斥锁：同一时间仅一路拨打，并发请求直接返回「占线」（503）
 - 防抖机制：同一目标默认 5 分钟内重复调用仅执行第一次（可配置）
@@ -95,17 +95,6 @@ numalarm init                       # 交互式生成 config.yaml
 numalarm serve                      # 启动 HTTP 服务
 ```
 
-### 4. 桌面快捷方式（Windows）
-
-```bash
-numalarm shortcut create 张三                          # 名称默认「牛马铃-拨打张三」
-numalarm shortcut create 老板 --name "打老板电话" --silent   # 静默：双击无黑框后台拨打
-numalarm shortcut list                                 # 列出已创建快捷方式
-numalarm shortcut delete "打老板电话"                   # 删除
-```
-
-双击桌面图标即拨打；可右键固定到任务栏 / 开始菜单；可为「默认号」「工作号」「测试号」创建多个独立快捷方式互不冲突。
-
 ## Agent 集成约定（打断自动提醒，使用本 Skill 的 Agent 必读）
 
 任何 Agent 使用本 Skill 时，凡遇「即将停下等待用户」或「完成任务交付」的情况，必须**先拨打提醒电话，再执行后续动作**：
@@ -136,7 +125,7 @@ numalarm call --silent -m "任务中断：需要你在方案 A/B 之间选择"
 - 内置 5 分钟防抖：窗口内重复触发只拨一次，不会电话轰炸
 - Agent 停止路径建议用 `--silent`，避免污染任务输出
 - `call_qq` 默认 `auto=True`：用户正在电脑前（键鼠空闲低于 presence.idle_seconds）时自动跳过拨打，离开电脑才真正响铃——无需 Agent 手动判断；因此「任务完成交付」时也应无条件调用，是否打扰由工具层自动决定
-- 零污染设计：依赖隔离在技能目录的独立虚拟环境，`numalarm uninstall` 一键清理运行时残留（hook/快捷方式/状态），删除技能目录即完全移除
+- 零污染设计：依赖隔离在技能目录的独立虚拟环境，`numalarm uninstall` 一键清理运行时残留（hook/状态/旧版快捷方式），删除技能目录即完全移除
 - 版本更新：`numalarm update` 先检查远端有无新版本（无则提示已最新），更新时自动保留 config.yaml 与校准模板、同步虚拟环境依赖并刷新 hook
 - 硬崩溃兜底：长任务开始时运行 `numalarm heartbeat`（此后若宿主有 PreToolUse hook 会自动刷新），任务结束运行 `numalarm heartbeat --clear`；心跳停更且人不在电脑前时，看门狗会自动拨打
 
@@ -175,24 +164,6 @@ numalarm call --silent -m "任务中断：需要你在方案 A/B 之间选择"
 | retry.no_answer_seconds | 25 | 无人接听判定阈值（秒），需略小于 QQ 响铃超时（约 30s） |
 | log.level / file | INFO / logs/numalarm.log | 日志级别与文件 |
 | server.host / port | 127.0.0.1 / 18600 | HTTP 服务监听 |
-| shortcut.name_prefix | 牛马铃-拨打 | 快捷方式名称前缀 |
-
-## 快捷方式专题
-
-**创建**：`numalarm shortcut create <目标> [--name "名称"] [--silent]`
-- 自动在桌面生成 `.lnk`，自动适配 Python 执行路径与命令参数
-- `--silent` 使用 pythonw.exe 执行，双击后不弹控制台窗口，后台拨打
-- 支持为不同目标创建多个独立快捷方式，互不冲突
-
-**查看**：`numalarm shortcut list`（列出所有牛马铃快捷方式及其命令行）
-
-**删除**：`numalarm shortcut delete <名称>`（确认后删除；也可直接在桌面手动删除）
-
-**修改**：快捷方式本质是 CLI 封装，改目标最简单的方式是删除后重建；高级修改可右键快捷方式 -> 属性，编辑「目标」中的参数（`call` 后面的目标名）。
-
-**固定**：右键快捷方式 -> 「固定到任务栏」或「固定到"开始"屏幕」。
-
-**失败降级**：未安装 pywin32 或非 Windows 平台时，创建命令会给出明确提示与手动创建教程（桌面右键新建快捷方式，目标填写 `"python.exe路径" -m numalarm.interfaces.cli call "目标"`），核心拨打功能不受影响。
 
 ## 注意事项
 

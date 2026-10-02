@@ -155,12 +155,6 @@ class ServerConfig(BaseModel):
     port: int = Field(18600, description="监听端口")
 
 
-class ShortcutConfig(BaseModel):
-    """桌面快捷方式配置。"""
-
-    name_prefix: str = Field("牛马铃-拨打", description="快捷方式默认名称前缀")
-
-
 class NumAlarmConfig(BaseModel):
     """numalarm 顶层配置模型，未提供的字段一律使用内置默认值。"""
 
@@ -200,7 +194,6 @@ class NumAlarmConfig(BaseModel):
     watchdog: WatchdogConfig = WatchdogConfig()
     log: LogConfig = LogConfig()
     server: ServerConfig = ServerConfig()
-    shortcut: ShortcutConfig = ShortcutConfig()
 
 
 # --------------------------- 配置管理器 ---------------------------

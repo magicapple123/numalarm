@@ -7,11 +7,11 @@
     result = call_qq(target="张三", timeout=30, silent=False)
     # {"code": 200, "message": "拨打成功", "data": {...}}
 
-其余接入方式见 interfaces 包：HTTP REST（api.py）、CLI 与桌面快捷方式（cli.py）。
+其余接入方式见 interfaces 包：HTTP REST（api.py）与 CLI（cli.py）。
 """
 
 from numalarm.interfaces.sdk import call_qq, test_call
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 __all__ = ["call_qq", "test_call", "__version__"]

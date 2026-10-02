@@ -8,11 +8,11 @@
 
 基于桌面 UI 自动化的 **QQ 电话通知 Skill**：通过模拟鼠标点击 PC 版 QQ 的「语音通话」按钮，自动向指定 QQ 好友拨打语音电话，为本地运行的各类 Agent 提供「任务完成 / 异常中断」时的强提醒能力。电话铃声能触达已离开电脑的用户——这是弹窗、消息推送做不到的。
 
-> 牛马铃：给「牛马」打工人准备的铃。一次封装、多 Agent 复用，也支持桌面快捷方式一键拨打。
+> 牛马铃：给「牛马」打工人准备的铃。一次封装、多 Agent 复用。
 
 ## 特性
 
-- **四种接入方式**：Python SDK / HTTP REST（18600）/ CLI / Windows 桌面快捷方式，共用同一核心流程
+- **三种接入方式**：Python SDK / HTTP REST（18600）/ CLI，共用同一核心流程
 - **图片匹配拨打**：定位语音按钮，置信度可配置，失败自动重试 2 次
 - **并发安全**：全局互斥锁，同一时间仅一路拨打，并发返回「占线」（503）
 - **防抖**：同一目标默认 5 分钟内仅拨一次（可配置）
@@ -113,7 +113,6 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
 
 9. 询问我是否需要（均幂等，重复执行无害）：
    - 注册打断自动拨打 hook（numalarm hook install，重复运行只刷新命令不重复注册）
-   - 创建桌面快捷方式（numalarm shortcut create <目标> --silent，同名会先询问是否覆盖）
 
 10. 告知我卸载方式：numalarm uninstall 一站式清理 + 删除技能目录；若装过虚拟声卡需在 Windows「设置-应用」卸载；卸载后请把我长期记忆里登记的 numalarm 约定与路径删除（这是你的记忆系统，只能由你清理）
 
@@ -141,7 +140,7 @@ numalarm test 张三
 numalarm call 张三
 ```
 
-## 四种调用方式
+## 三种调用方式
 
 ### 1. Python SDK
 
@@ -175,25 +174,8 @@ numalarm test [目标]                                 # 校准：不点击拨�
 numalarm init                                        # 交互式生成 config.yaml
 numalarm serve [--host H] [--port P]                 # 启动 HTTP 服务
 numalarm hook install / status / uninstall           # 打断自动拨打钩子（见下文）
+numalarm hold [-m 60] / --clear                      # 暂停/恢复自动提醒（自动继续回合用）
 ```
-
-### 4. 桌面快捷方式一键拨打（Windows）
-
-```bash
-# 基础：桌面生成「牛马铃-拨打张三.lnk」，双击即拨打
-numalarm shortcut create 张三
-
-# 静默模式：双击不弹控制台窗口，后台拨打，不打断当前工作
-numalarm shortcut create 老板 --name "打老板电话" --silent
-
-# 管理快捷方式
-numalarm shortcut list                    # 列出所有牛马铃快捷方式
-numalarm shortcut delete "打老板电话"      # 删除（确认后执行）
-```
-
-- 可为「默认号」「工作号」「测试号」创建多个独立快捷方式，互不冲突
-- 快捷方式可右键固定到任务栏 / 开始菜单
-- 未装 pywin32 / 非 Windows 平台时自动降级：给出明确提示与手动创建教程，不影响核心拨打功能
 
 ## 状态码
 
@@ -243,7 +225,6 @@ numalarm shortcut delete "打老板电话"      # 删除（确认后执行）
 | retry.no_answer_seconds | 25 | 兜底判定阈值（秒）；有响铃模板时改用状态文本判定（推荐） |
 | log.level / file | INFO / logs/numalarm.log | 日志级别与文件 |
 | server.host / port | 127.0.0.1 / 18600 | HTTP 服务监听 |
-| shortcut.name_prefix | 牛马铃-拨打 | 快捷方式名称前缀 |
 
 ## 接听后语音提醒（可选）
 
@@ -344,7 +325,7 @@ numalarm update
 | 组件 | 清理方式 |
 |------|----------|
 | 宿主 Hook 注册 | `numalarm hook uninstall`（或 `numalarm uninstall` 自动处理） |
-| 桌面快捷方式 | `numalarm shortcut delete <名称>`（或 `numalarm uninstall` 逐个确认删除） |
+| 桌面快捷方式（旧版本创建的） | `numalarm uninstall` 逐个确认删除（shortcut 功能已在 v1.0.3 移除） |
 | 运行时状态（`~/.numalarm`：防抖记录与锁文件） | `numalarm uninstall` 自动清理 |
 | Agent 长期记忆中的约定登记 | 由 Agent 自行删除（`numalarm uninstall` 结束时会提醒；numalarm 无法访问宿主的记忆系统） |
 | 技能/仓库目录（含 `.venv` 虚拟环境、`config.yaml`、模板） | 直接删除整个目录即可（建议最后删） |
@@ -415,7 +396,7 @@ numalarm/
     ├── interfaces/       # 对外接入层
     │   ├── sdk.py        # Python SDK
     │   ├── api.py        # HTTP REST
-    │   └── cli.py        # CLI + 桌面快捷方式 + 宿主 Hook 管理
+    │   └── cli.py        # CLI + 宿主 Hook 管理
     └── common/           # 通用基础组件
         ├── config.py     # 配置加载与管理
         ├── lock.py       # 全局互斥锁（进程内 + 跨进程文件锁）
@@ -429,7 +410,6 @@ numalarm/
 2. 不提供 QQ 自动登录、不存储账号密码
 3. 仅 UI 模拟点击，不注入进程、不破解协议、不调用 QQ 私有接口
 4. 无联网上报、无后台隐藏功能
-5. 桌面快捷方式仅 Windows 可用，其他平台自动禁用并提示
 
 ## 扩展路线
 

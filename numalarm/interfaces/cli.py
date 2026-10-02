@@ -1,4 +1,4 @@
-"""命令行接口（CLI）与桌面快捷方式管理。
+"""命令行接口（CLI）。
 
 命令总览：
 
@@ -6,12 +6,6 @@
     numalarm test [目标]                                  校准（不拨打）
     numalarm serve [--host H] [--port P]                  启动 HTTP 服务
     numalarm init                                         交互式初始化向导
-    numalarm shortcut create <目标> [--name "名称"] [--silent]   创建桌面快捷方式
-    numalarm shortcut delete <名称>                       删除快捷方式
-    numalarm shortcut list                                列出快捷方式
-
-桌面快捷方式仅支持 Windows；其他平台自动禁用该命令组并给出提示，
-不影响核心拨打功能。
 """
 
 from __future__ import annotations
@@ -30,7 +24,7 @@ import click
 
 from numalarm import __version__
 from numalarm.common.config import CONFIG_ENV, ConfigManager, clear_hold, hold_active, set_hold
-from numalarm.common.exceptions import CODE_SUCCESS, NumAlarmError
+from numalarm.common.exceptions import CODE_SUCCESS
 
 
 def _echo_result(result: dict, quiet: bool = False) -> None:
@@ -55,7 +49,7 @@ def cli() -> None:
 @cli.command()
 @click.argument("target", required=False)
 @click.option("--timeout", default=None, type=click.IntRange(min=1), help="单次拨打建立阶段超时秒数（默认 30）")
-@click.option("--silent", "-s", is_flag=True, help="静默执行：无控制台输出，完成自动退出，适合桌面快捷方式")
+@click.option("--silent", "-s", is_flag=True, help="静默执行：无控制台输出，完成自动退出")
 @click.option("--reason", "-m", default=None, help="拨打原因（记录到日志与结果，用于 Agent 集成追溯）")
 @click.option("--auto", is_flag=True, help="自动化触发：受用户在位检测控制（人在电脑前则跳过；人工命令默认不检测）")
 def call(target: Optional[str], timeout: Optional[int], silent: bool, reason: Optional[str], auto: bool) -> None:
@@ -142,139 +136,6 @@ def init() -> None:
     click.echo("下一步：按 assets/README.md 截取语音按钮示例图，然后运行 numalarm test 校准。")
 
 
-# ----------------------------------------------------------------------
-# 桌面快捷方式（仅 Windows）
-# ----------------------------------------------------------------------
-def _check_windows_for_shortcut() -> bool:
-    """快捷方式命令组的平台守卫：非 Windows 给出提示与手动教程。"""
-    if sys.platform == "win32":
-        return True
-    click.echo("桌面快捷方式功能仅支持 Windows 平台，当前系统不可用（核心拨打功能不受影响）。")
-    click.echo('手动创建方式：桌面右键 -> 新建 -> 快捷方式，目标填写：')
-    click.echo('  "python.exe完整路径" -m numalarm.interfaces.cli call "目标昵称"')
-    return False
-
-
-def _desktop_dir() -> Path:
-    """获取当前用户真实桌面目录（兼容 OneDrive 重定向）。"""
-    import win32com.client  # type: ignore
-
-    shell = win32com.client.Dispatch("WScript.Shell")
-    return Path(shell.SpecialFolders("Desktop"))
-
-
-def _resolve_python(silent: bool) -> Path:
-    """解析执行器路径：静默快捷方式优先使用 pythonw.exe（无控制台窗口）。"""
-    python_exe = Path(sys.executable)
-    if silent:
-        pythonw = python_exe.with_name("pythonw.exe")
-        if pythonw.is_file():
-            return pythonw
-    return python_exe
-
-
-def _build_call_args(target: str, silent: bool) -> str:
-    """构造快捷方式命令参数。"""
-    safe_target = target.replace('"', "")  # 防止目标名中的引号破坏参数
-    args = f'-m numalarm.interfaces.cli call "{safe_target}"'
-    if silent:
-        args += " --silent"
-    return args
-
-
-@cli.group()
-def shortcut() -> None:
-    """桌面快捷方式管理（仅 Windows，其他平台自动禁用）。"""
-
-
-@shortcut.command("create")
-@click.argument("target")
-@click.option("--name", default=None, help="快捷方式显示名称，默认「牛马铃-拨打{目标}」")
-@click.option("--silent", is_flag=True, help="生成静默快捷方式：双击不弹出控制台窗口，后台执行拨打")
-def shortcut_create(target: str, name: Optional[str], silent: bool) -> None:
-    """在桌面创建一键拨打快捷方式（TARGET 支持昵称/备注/别名，多个目标可创建多个快捷方式）。"""
-    if not _check_windows_for_shortcut():
-        sys.exit(1)
-    try:
-        import win32com.client  # noqa: F401
-    except ImportError:
-        click.echo("缺少可选依赖 pywin32，请执行：pip install pywin32")
-        click.echo("或手动创建快捷方式，目标填写：")
-        click.echo(f'  "{sys.executable}" -m numalarm.interfaces.cli call "{target}"')
-        sys.exit(1)
-
-    manager = ConfigManager.instance()
-    try:
-        manager.resolve_target(target)
-    except NumAlarmError:
-        click.echo("提示：该目标既不是 default_target 也未在 target_alias 中映射，请确认昵称/备注正确。", err=True)
-
-    prefix = manager.config.shortcut.name_prefix
-    display_name = name or f"{prefix}{target}"
-    safe_name = re.sub(r'[\\/:*?"<>|]', "_", display_name)
-    lnk_path = _desktop_dir() / f"{safe_name}.lnk"
-    if lnk_path.exists():
-        if not click.confirm(f"快捷方式已存在：{lnk_path.name}，覆盖它？", default=False):
-            click.echo("已取消，未做任何更改。")
-            return
-
-    shell = win32com.client.Dispatch("WScript.Shell")
-    lnk = shell.CreateShortCut(str(lnk_path))
-    lnk.TargetPath = str(_resolve_python(silent))
-    lnk.Arguments = _build_call_args(target, silent)
-    # 工作目录指向 config.yaml 所在目录，保证快捷方式双击时能找到配置
-    lnk.WorkingDirectory = str(manager.config_path.parent if manager.config_path else Path.cwd())
-    lnk.IconLocation = str(Path(sys.executable))
-    lnk.Description = f"牛马铃一键拨打：{target}"
-    lnk.WindowStyle = 1
-    lnk.Save()
-
-    click.echo(f"快捷方式已创建：{lnk_path}")
-    if silent:
-        click.echo("模式：静默（双击后无控制台窗口，后台执行拨打）")
-    click.echo("可右键该快捷方式固定到任务栏 / 开始菜单。")
-
-
-@shortcut.command("delete")
-@click.argument("name")
-def shortcut_delete(name: str) -> None:
-    """删除指定名称的桌面快捷方式（可省略 .lnk 后缀）。"""
-    if not _check_windows_for_shortcut():
-        sys.exit(1)
-    fname = name if name.lower().endswith(".lnk") else f"{name}.lnk"
-    path = _desktop_dir() / fname
-    if not path.is_file():
-        click.echo(f"未找到快捷方式：{path}")
-        sys.exit(1)
-    if click.confirm(f"确认删除 {path.name}？", default=False):
-        path.unlink()
-        click.echo("已删除。")
-    else:
-        click.echo("已取消。")
-
-
-@shortcut.command("list")
-def shortcut_list() -> None:
-    """列出由牛马铃创建的桌面快捷方式。"""
-    if not _check_windows_for_shortcut():
-        sys.exit(1)
-    desktop = _desktop_dir()
-    found = 0
-    for lnk_path in sorted(desktop.glob("*.lnk")):
-        try:
-            import win32com.client
-
-            shell = win32com.client.Dispatch("WScript.Shell")
-            args = shell.CreateShortCut(str(lnk_path)).Arguments or ""
-            if "numalarm" in args:
-                found += 1
-                click.echo(f"{lnk_path.stem}  ->  {args}")
-        except Exception:  # noqa: BLE001 单个快捷方式解析失败不影响整体
-            continue
-    if not found:
-        click.echo("未发现牛马铃快捷方式。")
-
-
 @cli.command()
 def doctor() -> None:
     """环境自检：逐项检查依赖/配置/素材/进程，并给出修复建议（新用户先跑这个）。"""
@@ -329,13 +190,13 @@ def doctor() -> None:
     except Exception:  # noqa: BLE001 psutil 缺失时跳过
         pass
 
-    # 5. 快捷方式可选依赖
+    # 5. 语音提醒可选依赖（pywin32 提供 SAPI TTS）
     if sys.platform == "win32":
         try:
             import win32com.client  # noqa: F401
-            check("pywin32（桌面快捷方式）", True)
+            check("pywin32（语音提醒）", True)
         except ImportError:
-            check("pywin32（桌面快捷方式）", False, "pip install pywin32（不影响核心拨打）")
+            check("pywin32（语音提醒）", False, "pip install pywin32（不影响核心拨打，仅影响接听后语音提醒）")
 
     # 汇总
     failed = results.count(False)

@@ -1,6 +1,6 @@
 # numalarm 测试用例说明
 
-覆盖范围：核心拨打流程、异常与边界、并发/防抖、四种接入方式、桌面快捷方式。
+覆盖范围：核心拨打流程、异常与边界、并发/防抖、三种接入方式。
 测试环境要求：Windows 10/11 + PC 版 QQ（已登录）+ 已按 assets/README.md 替换按钮截图。
 
 ## 0. 自动化预检查（无需 QQ）
@@ -24,7 +24,6 @@ numalarm doctor
 # CLI 可用性
 numalarm --help
 numalarm call --help
-numalarm shortcut --help
 
 # 示例配置可解析
 python -c "import yaml; from numalarm.common.config import NumAlarmConfig; \
@@ -94,33 +93,11 @@ curl http://127.0.0.1:18600/api/status
 # 拨打过程中查询 -> {"code": 503, ..., "data": {"busy": true}}
 ```
 
-## 5. 桌面快捷方式：创建与功能验证
-
-**创建：**
-
-```bash
-numalarm shortcut create 张三                                  # 默认名称：牛马铃-拨打张三
-numalarm shortcut create 老板 --name "打老板电话" --silent      # 自定义名称 + 静默
-numalarm shortcut create 李四 --name "测试号"                   # 第三个独立快捷方式
-```
-
-**验证清单：**
-
-- [ ] 桌面出现对应 `.lnk` 图标，名称符合「牛马铃-拨打{目标}」或自定义 `--name`
-- [ ] 双击「牛马铃-拨打张三」→ 弹出控制台执行 → QQ 发起语音通话 → 控制台显示 `[200] 拨打成功`
-- [ ] 双击静默快捷方式「打老板电话」→ 无黑框弹出 → QQ 正常发起通话（后台执行）
-- [ ] `numalarm shortcut list` 列出全部 3 个快捷方式及其命令参数
-- [ ] 多个快捷方式指向不同目标，互不冲突、可并存
-- [ ] 快捷方式右键「固定到任务栏」「固定到"开始"屏幕」均可用
-- [ ] `numalarm shortcut delete "打老板电话"` → 确认后删除成功；`list` 不再显示
-- [ ] 降级验证：`pip uninstall pywin32` 后执行 `shortcut create` → 输出明确提示与手动创建教程，核心 `call` 功能不受影响
-- [ ] 非 Windows（如 WSL 内执行）→ 提示仅支持 Windows，不影响核心功能提示
-
 ## 6. 验收清单（汇总）
 
 - [ ] `python -m compileall numalarm` 无错误
 - [ ] `numalarm test` 四步全 PASS
-- [ ] SDK / HTTP / CLI / 快捷方式四方式均可触发拨打（code=200）
+- [ ] SDK / HTTP / CLI 三方式均可触发拨打（code=200）
 - [ ] TC-101 ~ TC-110 异常场景状态码全部符合规范
 - [ ] 并发仅一路拨打（503），防抖生效（429），锁正常释放
 - [ ] 静默模式无任何标准输出
