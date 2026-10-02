@@ -12,6 +12,7 @@
 - hook 命令优先内嵌安装目录内 `.venv` 的解释器（免黑框）；update 改为同时刷新拨打+心跳 hook、校验依赖同步退出码、修复非 Windows 虚拟环境路径
 - `requirements.txt` 添加 UTF-8 BOM：修复中文注释在 GBK 默认编码环境下 pip 解析报 UnicodeDecodeError（无需改动注释）
 - 文档与 CI：README 新增「安装范围与全机副作用」「多副本体检与收拢」，SKILL.md 清理过时条目；CI 纳入 install.py（编译 / ruff / `--help` 冒烟）
+- 修复 CI 与英文区域 Windows 兼容：install.py 的 ruff F541；安装器与 CLI 入口在非 UTF-8 输出流（管道/重定向按 cp1252 等编码）下打印中文不再崩溃（stdout/stderr 错误处理器降级为 replace，`console_scripts` 入口点改指 `main`，控制台脚本与 `-m` 两条路径均生效）；`--json` 摘要统一 ASCII 转义，避免中文在非 UTF-8 流下损坏
 
 ## v1.0.3（2026-10-02）
 

@@ -4,6 +4,9 @@
 """
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import click
@@ -164,3 +167,13 @@ def test_rewrite_hooks_for_install(tmp_path):
         assert cmds and all("newinstall" in c and "heartbeat" in c for c in cmds)
     assert _commands(data, "UserPromptSubmit") == ["echo hi"]  # 非 numalarm 条目不动
     assert (tmp_path / "settings.json.numalarm-bak").is_file()
+
+
+def test_cli_help_survives_non_utf8_stream():
+    """英文区域 Windows（cp1252 管道/重定向）下 `numalarm --help` 不得因中文输出崩溃（回归）。"""
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    r = subprocess.run([sys.executable, "-m", "numalarm.interfaces.cli", "--help"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=env, cwd=str(Path(__file__).resolve().parents[1]))
+    assert r.returncode == 0
+    assert "--help" in r.stdout

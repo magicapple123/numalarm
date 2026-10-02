@@ -51,6 +51,21 @@ class Step:
 # ----------------------------------------------------------------------
 # 基础工具
 # ----------------------------------------------------------------------
+def _console_safe() -> None:
+    """非 UTF-8 输出流兜底：不可编码的字符降级为 "?"，而不是抛 UnicodeEncodeError。
+
+    英文区域 Windows 上 stdout/stderr 被管道或重定向时按 ANSI 代码页（cp1252 等）编码，
+    打印中文会直接崩溃（CI 与「被其它程序抓取输出」都会踩到）。该实现刻意与
+    numalarm/interfaces/cli.py 的同名函数保持一致——本脚本按设计不 import 包内模块。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None and hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
+        except Exception:  # 少数被替换过的流不支持 reconfigure
+            pass
+
+
 def _load_installations():
     """按文件路径加载 numalarm/common/installations.py。
 
@@ -340,6 +355,7 @@ def _parse_args(argv: Optional[List[str]], installations_mod) -> argparse.Namesp
 
 def main(argv: Optional[List[str]] = None) -> int:
     global installations
+    _console_safe()
     try:
         installations = _load_installations()
     except InstallError as exc:
@@ -482,10 +498,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 def _finish(args: argparse.Namespace, install_dir: Path, results: List[Dict[str, Any]], exit_code: int, log) -> None:
     if args.json:
+        # ensure_ascii=True：机器可读输出不依赖 stdout 编码（非 UTF-8 流下中文会变 "?"）
         print(json.dumps({"install_dir": str(install_dir), "steps": results, "exit": exit_code},
-                         ensure_ascii=False, indent=2))
+                         ensure_ascii=True, indent=2))
     log(f"\n== {'安装完成' if exit_code == 0 else '安装未完成'}（退出码 {exit_code}）=="
-        if not args.dry_run else f"\n== 演练结束（未做任何改动）==")
+        if not args.dry_run else "\n== 演练结束（未做任何改动）==")
 
 
 if __name__ == "__main__":

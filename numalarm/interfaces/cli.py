@@ -35,6 +35,21 @@ from numalarm.common.installations import (
 )
 
 
+def _console_safe() -> None:
+    """非 UTF-8 输出流兜底：不可编码的字符降级为 "?"，而不是抛 UnicodeEncodeError。
+
+    英文区域 Windows 上 stdout/stderr 被管道或重定向时按 ANSI 代码页（cp1252 等）编码，
+    打印中文会直接崩溃；真实控制台走 PEP 528 宽字符接口，不受影响。
+    仅在入口（main）调用，避免影响被导入方（如测试的捕获流）。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None and hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
+        except Exception:  # 少数被替换过的流不支持 reconfigure
+            pass
+
+
 def _echo_result(result: dict, quiet: bool = False) -> None:
     """输出统一结果字典；静默模式不输出任何内容。"""
     if quiet:
@@ -622,6 +637,7 @@ def watchdog_status() -> None:
 
 def main() -> None:
     """CLI 入口（pyproject.toml console_scripts 指向此处）。"""
+    _console_safe()
     cli()
 
 

@@ -1,6 +1,7 @@
 """install.py 一键安装器单元测试（纯逻辑，Ubuntu CI 可跑）。"""
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -74,3 +75,12 @@ def test_installer_help_smoke():
     assert r.returncode == 0
     assert "--dry-run" in r.stdout
     assert "--reuse-assets" in r.stdout
+
+
+def test_installer_help_survives_non_utf8_stream():
+    """英文区域 Windows（cp1252 管道/重定向）下 --help 不得因中文输出崩溃（回归）。"""
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    r = subprocess.run([sys.executable, str(_INSTALLER_PATH), "--help"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
+    assert r.returncode == 0
+    assert "--dry-run" in r.stdout

@@ -30,7 +30,7 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [project.scripts]
-numalarm = "numalarm.interfaces.cli:cli"
+numalarm = "numalarm.interfaces.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["numalarm*"]
