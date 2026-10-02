@@ -290,6 +290,28 @@ numalarm hook install --settings "D:/我的Agent/settings.json"   # 任意兼容
 - 自带防轰炸：防抖窗口内重复触发只拨一次；重拨会话持锁期间后续触发直接返回 503 静默退出
 - 注册后重启对应宿主会话生效；配合 `numalarm call -m "原因"` 可在日志中追溯触发原因
 
+## 看门狗：Agent 硬崩溃兜底（可选）
+
+Stop/Notification 等 hook 由宿主进程执行——**Agent 进程硬崩溃（强杀/无响应被杀/OOM）时它们全部失效**。看门狗用外部观察者补上这个盲区：
+
+```
+任务运行期间：每次工具调用 → PreToolUse hook 刷新心跳文件（~/.numalarm/heartbeat.json）
+任务正常结束：SessionEnd hook 清除心跳
+看门狗（计划任务每分钟一次）：
+  心跳超过 watchdog.stale_seconds（默认 300s）未刷新
+  且 QQ 在运行 → 判定 Agent 异常 → 自动拨打（auto，人在电脑前自动跳过）
+```
+
+```bash
+numalarm watchdog install      # 注册计划任务 + 心跳 hook（跨宿主通用）
+numalarm watchdog status       # 查看注册状态
+numalarm watchdog uninstall    # 移除（拨打类 hook 不受影响）
+```
+
+**跨宿主通用**：兼容 hooks 的宿主由 PreToolUse hook 自动刷新心跳；无 hook 机制的宿主（任何能跑命令的 Agent）按 SKILL.md 约定在长任务中定期运行 `numalarm heartbeat` 即可接入同一个看门狗。
+
+调优：`watchdog.stale_seconds` 需大于 Agent 纯思考（不调工具）的最长间隙，否则可能误报（误报时人在电脑前会被在位检测拦截，人不在则多打一通提醒——方向正确，频率可用阈值调节）。
+
 ## 更新
 
 ```bash
