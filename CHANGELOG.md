@@ -1,5 +1,11 @@
 # 更新日志
 
+## v1.1.2（2026-10-02）
+
+- 修复看门狗计划任务每分钟弹出黑框窗口的问题：启动器由「.cmd 批处理 + python.exe」改为「VBS 隐藏启动器 + pythonw.exe」（窗口样式 0，完全无窗口）；旧 .cmd 启动器在重装时自动清理
+- `watchdog install` 新增 `--dir` 参数：多副本场景下显式指定看门狗服务的正本安装（默认仍为当前代码所在安装），避免从开发目录执行时误指
+- 升级方式：`numalarm update` 或重新运行 `numalarm watchdog install`（自动替换启动器与计划任务）
+
 ## v1.1.1（2026-10-02）
 
 社区反馈修复（感谢 [@zhangxingyu-1213](https://github.com/zhangxingyu-1213) 的四份高质量报告）：

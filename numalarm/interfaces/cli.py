@@ -556,39 +556,51 @@ def watchdog() -> None:
 
 
 def _watchdog_script_path() -> Path:
-    return ConfigManager.state_dir() / "watchdog-task.cmd"
+    return ConfigManager.state_dir() / "watchdog-task.vbs"
 
 
-def _watchdog_script_text() -> str:
-    install_dir = Path(__file__).resolve().parents[2]
+def _watchdog_script_text(install_dir: Path) -> str:
+    """生成隐藏启动脚本（VBS）：计划任务直接跑 .cmd/python.exe 会每次闪黑框，
+    VBS 以窗口样式 0 隐藏执行 pythonw，彻底无窗口。
+
+    Python 解释器优先用正本安装目录自带的 .venv\\Scripts\\pythonw.exe
+    （正本自包含），不存在时退回当前解释器。"""
     python_exe = Path(sys.executable).resolve()
+    venv_pythonw = (install_dir / ".venv" / "Scripts" / "pythonw.exe")
+    py = str((venv_pythonw if venv_pythonw.is_file() else python_exe)).replace('"', "")
+    dir_str = str(install_dir).replace('"', "")
     return (
-        "@echo off\r\n"
-        f'cd /d "{install_dir}"\r\n'
-        f'"{python_exe}" -m numalarm.interfaces.cli watchdog-run --silent\r\n'
+        'Set sh = CreateObject("WScript.Shell")\r\n'
+        f'sh.CurrentDirectory = "{dir_str}"\r\n'
+        f'sh.Run """{py}"" -m numalarm.interfaces.cli watchdog-run --silent", 0, False\r\n'
     )
 
 
 @watchdog.command("install")
+@click.option("--dir", "install_dir_opt", type=click.Path(exists=True, file_okay=False, path_type=Path),
+              default=None, help="看门狗服务哪个 numalarm 安装（默认为当前代码所在安装；多副本时建议显式指定正本）")
 @click.option("--host", "hosts", default=None,
               help="心跳 hook 目标宿主：workbuddy / claude / codebuddy / all；默认自动探测（计划任务本身始终全机注册）")
 @click.option("--settings", "settings_paths", multiple=True, type=click.Path(dir_okay=False, path_type=Path),
               help="自定义宿主的 settings.json 路径（心跳 hook 写入目标），可多次传入；优先于 --host")
-def watchdog_install(hosts: Optional[str], settings_paths: tuple) -> None:
+def watchdog_install(install_dir_opt: Optional[Path], hosts: Optional[str], settings_paths: tuple) -> None:
     """注册每分钟一次的看门狗计划任务（全机唯一），并向目标宿主注册心跳 hook。"""
+    install_dir = install_dir_opt.resolve() if install_dir_opt else _current_install_dir()
     if sys.platform == "win32":
         script = _watchdog_script_path()
-        script.write_text(_watchdog_script_text(), encoding="utf-8")
+        script.write_text(_watchdog_script_text(install_dir), encoding="utf-8")
+        # 清理 v1.1.2 之前遗留的 .cmd 启动器（批处理+python.exe 会每分钟闪黑框）
+        ConfigManager.state_dir().joinpath("watchdog-task.cmd").unlink(missing_ok=True)
         subprocess.run(["schtasks", "/Delete", "/F", "/TN", WATCHDOG_TASK_NAME],
                        capture_output=True)  # 幂等：先删旧任务（不存在时报错忽略）
         r = subprocess.run(
             ["schtasks", "/Create", "/F", "/TN", WATCHDOG_TASK_NAME, "/SC", "MINUTE", "/MO", "1",
-             "/TR", f'"{script}"'],
+             "/TR", f'wscript.exe "{script}"'],
             capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             click.echo(f"[失败] 计划任务注册失败：{(r.stderr or r.stdout).strip()}")
             sys.exit(1)
-        click.echo(f"[OK] 计划任务 {WATCHDOG_TASK_NAME} 已注册（每分钟检查一次，脚本：{script}）")
+        click.echo(f"[OK] 计划任务 {WATCHDOG_TASK_NAME} 已注册（每分钟隐藏检查一次，启动器：{script}）")
     else:
         cron_line = f"* * * * * cd '{Path(__file__).resolve().parents[2]}' && '{sys.executable}' -m numalarm.interfaces.cli watchdog-run --silent"
         r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
@@ -627,6 +639,7 @@ def watchdog_uninstall(hosts: Optional[str], settings_paths: tuple) -> None:
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         click.echo("[OK] 计划任务已移除" if r.returncode == 0 else "[跳过] 计划任务不存在")
         _watchdog_script_path().unlink(missing_ok=True)
+        ConfigManager.state_dir().joinpath("watchdog-task.cmd").unlink(missing_ok=True)
     else:
         r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         if r.returncode == 0:
