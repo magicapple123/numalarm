@@ -312,6 +312,18 @@ numalarm watchdog uninstall    # 移除（拨打类 hook 不受影响）
 
 调优：`watchdog.stale_seconds` 需大于 Agent 纯思考（不调工具）的最长间隙，否则可能误报（误报时人在电脑前会被在位检测拦截，人不在则多打一通提醒——方向正确，频率可用阈值调节）。
 
+## 暂停提醒（hold）：等待 CI / 子代理时免打扰
+
+团队/编排类 Agent 常有「回合结束但将**自动继续**」的时刻（等待子代理汇报、CI 完成、定时恢复）——这类回合不需要用户操作，Stop hook 却会照常触发。为此提供 hold 机制：
+
+```bash
+numalarm hold          # 暂停自动提醒 30 分钟（默认，可 -m 自定义）
+numalarm hold -m 60    # 暂停 60 分钟
+numalarm hold --clear  # 立即恢复（需要用户操作/最终交付时）
+```
+
+**使用约定**（已写入 SKILL.md）：Agent 回合结束后将自动继续时，结束前运行 `numalarm hold`；需要用户操作或最终交付时先 `numalarm hold --clear` 再拨打。hold 到期自动恢复——即使 Agent 忘记摘牌也不会永久漏提醒。
+
 ## 更新
 
 ```bash

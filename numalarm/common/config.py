@@ -10,8 +10,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -111,6 +113,32 @@ class PresenceConfig(BaseModel):
         180.0,
         description="键鼠空闲超过该秒数才真正拨打；低于该值视为用户正在电脑前，静默跳过",
     )
+
+
+def hold_file() -> Path:
+    """提醒暂停标记文件路径（hold.json：{"until": 时间戳}）。"""
+    return ConfigManager.state_dir() / "hold.json"
+
+
+def hold_active() -> bool:
+    """提醒是否处于暂停期（hold 未过期）。由 Agent 在「回合将自动继续」时设置。"""
+    try:
+        until = float(json.loads(hold_file().read_text(encoding="utf-8")).get("until", 0))
+    except (OSError, ValueError, json.JSONDecodeError, TypeError):
+        return False
+    return time.time() < until
+
+
+def set_hold(minutes: float) -> None:
+    """暂停自动提醒指定分钟数（到期自动恢复，防 Agent 忘记摘牌导致漏提醒）。"""
+    p = hold_file()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"until": time.time() + minutes * 60}), encoding="utf-8")
+
+
+def clear_hold() -> None:
+    """立即恢复自动提醒（Agent 需要用户操作/最终交付时调用）。"""
+    hold_file().unlink(missing_ok=True)
 
 
 class LogConfig(BaseModel):

@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
-from numalarm.common.config import ConfigManager, NumAlarmConfig
+from numalarm.common.config import ConfigManager, NumAlarmConfig, hold_active
 from numalarm.common.exceptions import (
     CODE_QQ_NOT_RUNNING,
     CODE_SUCCESS,
@@ -180,8 +180,8 @@ class CallExecutor:
                 # 3. 拨打循环
                 attempt = 0
                 while True:
-                    # 用户在位检测：人在电脑前不打扰（每轮重拨前复检，中途回来自动停止）
-                    if auto and self._user_active():
+                    # 用户在位检测 + 提醒暂停（hold）：人在电脑前或 Agent 挂了免打扰牌时不打扰
+                    if auto and (self._user_active() or hold_active()):
                         idle = state_detector.get_idle_seconds()
                         skipped = {
                             "skipped": True,

@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional
 import click
 
 from numalarm import __version__
-from numalarm.common.config import CONFIG_ENV, ConfigManager
+from numalarm.common.config import CONFIG_ENV, ConfigManager, clear_hold, hold_active, set_hold
 from numalarm.common.exceptions import CODE_SUCCESS, NumAlarmError
 
 
@@ -410,6 +410,24 @@ def uninstall(yes: bool) -> None:
 
 
 @cli.command()
+@click.option("--minutes", "-m", "minutes_", default=30, show_default=True, type=click.IntRange(min=1),
+              help="暂停时长（分钟），到期自动恢复提醒（防 Agent 忘记摘牌导致漏提醒）")
+@click.option("--clear", is_flag=True, help="清除暂停：立即恢复 Stop/看门狗拨打")
+def hold(minutes_: int, clear: bool) -> None:
+    """暂停/恢复自动提醒（供 Agent 在「回合将自动继续」时使用）。
+
+    回合结束后将自动继续（等待子代理汇报/CI/定时恢复等，无需用户操作）时运行
+    `numalarm hold` 暂停拨打；需要用户操作或任务最终交付时运行 `numalarm hold --clear`。
+    """
+    if clear:
+        clear_hold()
+        click.echo("提醒已恢复")
+        return
+    set_hold(minutes_)
+    click.echo(f"自动提醒已暂停 {minutes_} 分钟（到期自动恢复）")
+
+
+@cli.command()
 @click.option("--dir", "install_dir_opt", type=click.Path(exists=True, file_okay=False, path_type=Path),
               default=None, help="要更新的 numalarm 安装目录（默认为当前代码所在安装目录）")
 def update(install_dir_opt: Optional[Path]) -> None:
@@ -563,6 +581,8 @@ def watchdog_run(silent: bool) -> None:
     age = time.time() - ts
     if age < float(w.stale_seconds):
         return  # 心跳新鲜：Agent 正常
+    if hold_active():
+        return  # Agent 已挂「免打扰牌」（回合将自动继续），暂停拨打
     from numalarm.core.state_detector import is_qq_running
 
     if not is_qq_running(cfg.qq_process_name):
