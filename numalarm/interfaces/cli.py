@@ -529,7 +529,8 @@ def main() -> None:
 # 宿主 Hook 集成（跨 Agent 通用）
 # ----------------------------------------------------------------------
 # 兼容 Claude Code hooks schema 的宿主（WorkBuddy / Claude Code / CodeBuddy 等）
-HOOK_EVENTS = ("Notification", "PermissionRequest")
+# Stop = Agent 回合结束（任务交付时刻）：配合在位检测实现「人离开后任务完成自动响铃」
+HOOK_EVENTS = ("Notification", "PermissionRequest", "Stop")
 KNOWN_HOSTS = {
     "workbuddy": Path.home() / ".workbuddy" / "settings.json",
     "claude": Path.home() / ".claude" / "settings.json",

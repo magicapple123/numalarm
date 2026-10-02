@@ -285,7 +285,7 @@ numalarm hook install --settings "D:/我的Agent/settings.json"   # 任意兼容
 ```
 
 - 支持宿主：任何兼容 Claude Code hooks 配置规范（`settings.json`）的 Agent 宿主；`hook install` 自动探测本机常见宿主，其他兼容宿主用 `--settings <路径>` 指定，不限于内置名单
-- 注册事件：`Notification`（Agent 需要用户注意）+ `PermissionRequest`（等待用户批准）——即「Agent 停下来等你处理」的时刻
+- 注册事件：`Notification`（Agent 需要用户注意）+ `PermissionRequest`（等待用户批准）+ `Stop`（Agent 回合结束=任务交付时刻）——配合在位检测，实现「人离开电脑后任务完成自动响铃；人在电脑前零打扰」
 - hook 命令：`NUMALARM_CONFIG=... pythonw -m numalarm.interfaces.cli call --silent --auto`（async 异步不阻塞，无黑框，受用户在位检测控制）
 - 自带防轰炸：防抖窗口内重复触发只拨一次；重拨会话持锁期间后续触发直接返回 503 静默退出
 - 注册后重启对应宿主会话生效；配合 `numalarm call -m "原因"` 可在日志中追溯触发原因
