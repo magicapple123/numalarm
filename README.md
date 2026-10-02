@@ -86,6 +86,21 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
    `numalarm hook install --settings "D:/我的Agent/settings.json"`；
    完全不支持 hooks 的宿主则依赖第 3 点的约定层（Agent 主动拨打）。
 
+### 示例：OpenAI Codex 接入（AGENTS.md 约定层）
+
+Codex 没有 Claude Code 的 hooks 体系，`numalarm hook install` 不适用；
+它读取 AGENTS.md 指令文件，因此走**约定层接入**（Agent 主动调用 CLI）。
+
+1. 打开 codex 的指令文件：全局 `C:\Users\<你>\.codex\AGENTS.md`
+   （不存在则新建；只对单个项目生效就放项目根目录）；
+2. 复制 [examples/AGENTS-codex.md](examples/AGENTS-codex.md) 的约定正文粘贴到文件末尾，
+   把 `<numalarm 安装目录>` 替换为你机器上的实际路径（需含 `.venv`）；
+3. 保存后**重开 codex 会话**（AGENTS.md 启动时读取）；
+4. 验证：对 codex 说「测试拨打一次电话」——离开电脑再测更直观。
+
+约定内含 hold 免打扰与心跳协议：看门狗对 codex 同样生效（硬崩溃兜底）。
+该模板也适用于其他读取 AGENTS.md 的 Agent，替换路径即可。
+
 ## 安装范围与全机副作用
 
 牛马铃包含若干**宿主级 / 全机级**注册项，安装前请知悉——`install.py` 默认只触碰与当前宿主相关的项：
