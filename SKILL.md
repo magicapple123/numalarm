@@ -4,7 +4,7 @@ description: 牛马铃——QQ 语音通话强提醒 Skill。基于桌面 UI 自
 license: MIT
 compatibility: 仅支持 Windows 10/11 + PC 版 QQ（已登录、桌面解锁）；Python 3.10+；不支持网页版/Mac/移动端
 metadata:
-  version: 1.0.3
+  version: 1.1.0
   display-name: 牛马铃
   keywords: [qq, voice-call, phone-notification, ui-automation, agent-alert]
 ---
@@ -23,7 +23,7 @@ metadata:
 - 防抖机制：同一目标默认 5 分钟内重复调用仅执行第一次（可配置）
 - 无人接听自动重拨：以「等待对方接听」状态文本模板确定性判定——文案变化（计时器/拒绝提示）即触达成功，窗口关闭且全程响铃即无应答，自动间隔重拨直至触达（次数可不限）
 - 接听后语音提醒（可选）：对方接听后自动播放固定语音（SAPI 离线合成，经虚拟声卡注入 QQ 麦克风），播完自动挂断
-- Windows 桌面快捷方式一键拨打，支持静默后台执行（无黑框）
+- 宿主 Hook / 看门狗双保险：Agent 停下等待或硬崩溃时自动拨打兜底；仓库内 `python install.py` 一键安装（幂等，默认只注册当前宿主）
 - 全参数配置化（快捷键/等待时长/置信度/防抖/端口），无硬编码
 - 仅模拟手动操作：无注入、无破解、不调用 QQ 私有接口、不存储账号密码
 
@@ -86,12 +86,14 @@ curl http://127.0.0.1:18600/api/status
 ### 3. CLI
 
 ```bash
+python install.py                   # （仓库目录内）一键安装：.venv + 依赖 + 配置 + 自检（幂等）
 numalarm call 张三 --timeout 30     # 指定目标
 numalarm call 老板                  # 使用别名
 numalarm call                       # 使用 default_target
 numalarm call 张三 -s               # 静默执行
 numalarm test 张三                  # 校准（不拨打，逐步输出检测项）
 numalarm init                       # 交互式生成 config.yaml
+numalarm installs                   # 多副本体检（--apply 统一各宿主 hook 指向）
 numalarm serve                      # 启动 HTTP 服务
 ```
 

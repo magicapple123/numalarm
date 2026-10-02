@@ -133,3 +133,28 @@ def test_idle_seconds_non_windows_returns_negative():
     else:
         # Windows 上仅要求返回非负数值（当前会话必然有输入时间戳）
         assert state_detector.get_idle_seconds() >= 0.0
+
+
+# ---------------- 配置解析错误可见性 ----------------
+def test_config_load_error_on_invalid_yaml(tmp_path):
+    bad = tmp_path / "config.yaml"
+    bad.write_text("default_target: [1,\n", encoding="utf-8")  # 非法 YAML
+    mgr = ConfigManager(config_path=bad)
+    assert mgr.load_error is not None and str(bad) in mgr.load_error
+    assert mgr.config.server.port == 18600  # 回退默认值，工具整体可用
+
+
+def test_config_load_error_none_when_valid(tmp_path):
+    good = tmp_path / "config.yaml"
+    good.write_text("default_target: 张三\nserver:\n  port: 19999\n", encoding="utf-8")
+    mgr = ConfigManager(config_path=good)
+    assert mgr.load_error is None
+    assert mgr.config.default_target == "张三"
+    assert mgr.config.server.port == 19999
+
+
+def test_config_load_error_on_missing_explicit_path(tmp_path):
+    missing = tmp_path / "nope.yaml"
+    mgr = ConfigManager(config_path=missing)
+    assert mgr.load_error is not None and str(missing) in mgr.load_error
+    assert mgr.config.server.port == 18600

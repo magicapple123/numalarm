@@ -30,6 +30,18 @@
 
 ## 安装
 
+**方式一：一键安装器（推荐）**——在仓库/技能目录内运行：
+
+```bash
+python install.py            # 建 .venv → pip install -e . → 生成 config.yaml → doctor 自检
+python install.py --dry-run  # 演练模式：只探测与打印计划，不做任何改动
+python install.py --yes      # 非交互（Agent 场景）；默认不注册 hook，仅打印可复制的命令
+```
+
+幂等可重复执行：已完成的步骤自动跳过，不覆盖你已校准的 `config.yaml` 与模板；hook/看门狗注册默认只作用于**当前宿主**（由安装路径自动判定）。
+
+**方式二：手动安装**：
+
 ```bash
 # 1. 获取项目后进入目录
 cd numalarm
@@ -74,6 +86,22 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
    `numalarm hook install --settings "D:/我的Agent/settings.json"`；
    完全不支持 hooks 的宿主则依赖第 3 点的约定层（Agent 主动拨打）。
 
+## 安装范围与全机副作用
+
+牛马铃包含若干**宿主级 / 全机级**注册项，安装前请知悉——`install.py` 默认只触碰与当前宿主相关的项：
+
+| 组件 | 位置 | 默认范围 | 移除方式 |
+|------|------|----------|----------|
+| 安装目录（含 `.venv`、`config.yaml`、模板） | 你克隆/安装的目录 | 单目录，本地 | 直接删除目录 |
+| 拨打 hook（Notification/PermissionRequest/Stop） | 各宿主 `settings.json` | `hook install` 默认写**全部已探测宿主**；`install.py` 与 `--host`/`--settings` 只写当前/指定宿主 | `numalarm hook uninstall`（只删拨打类） |
+| 心跳 hook（PreToolUse/SessionEnd） | 各宿主 `settings.json` | 同上 | `numalarm watchdog uninstall`（只删心跳类） |
+| 看门狗计划任务 | Windows 计划任务 / crontab | **全机唯一**（`--host` 只影响心跳 hook 写入范围，不影响任务本身） | `numalarm watchdog uninstall` |
+| 运行时状态（锁/防抖/hold/心跳/更新备份） | `~/.numalarm` | **全机共享**，多副本共用 | `numalarm uninstall` |
+| pip 包（`pip install -e .`） | 对应 Python 环境 | 仅该环境（`install.py` 使用目录内 `.venv`） | `pip uninstall numalarm` |
+| 虚拟声卡 VB-Cable（可选） | 系统驱动 | 全机 | Windows「设置 → 应用」卸载 |
+
+默认作用域可用环境变量切换：设置 `NUMALARM_HOOK_SCOPE=current` 后，`hook install` / `watchdog install` 的默认目标仅为当前安装所在宿主。
+
 ### 小白一键安装：把这段话发给你的 Agent 即可
 
 不熟悉命令行？把下面整段提示词复制、发送给你电脑里的 Agent（任何能执行命令行与读写文件的 Agent 均可）。**流程完全幂等**：无论是全新安装、上次装到一半中断，还是想顺便更新，重复发送都安全——每一步都会先检查当前状态，已完成的自动跳过，不会重复安装文件、不会覆盖你已校准的配置：
@@ -88,6 +116,7 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
    - 将该路径与 SKILL.md 的「Agent 集成约定」登记到我的长期记忆（已有则更新）
 
 2. 依赖（全部隔离在技能目录的 .venv 内，不写系统 Python）：
+   - 快捷方式：若目录内有 install.py，可直接运行 python install.py --yes 一步完成建 venv + 装依赖 + 生成配置 + 自检（幂等；非交互默认不注册 hook，后续步骤照常）
    - .venv 已存在：直接复用，不重建
    - 不存在：python -m venv .venv 创建
    - 运行 .venv 的 python -m pip install -r requirements.txt（pip 对已满足的依赖自动跳过），然后运行 numalarm doctor 自检，有 FAIL 项修复后重跑
@@ -124,6 +153,9 @@ git clone https://github.com/magicapple123/numalarm.git ~/.claude/skills/numalar
 ## 快速开始
 
 ```bash
+# 一键安装（建 .venv + 依赖 + 配置，幂等；也可手动执行下方 1-2 步）
+python install.py
+
 # 0. 环境自检（新用户先跑这个：依赖/配置/素材/QQ 逐项体检 + 修复提示）
 numalarm doctor
 
@@ -174,6 +206,7 @@ numalarm test [目标]                                 # 校准：不点击拨�
 numalarm init                                        # 交互式生成 config.yaml
 numalarm serve [--host H] [--port P]                 # 启动 HTTP 服务
 numalarm hook install / status / uninstall           # 打断自动拨打钩子（见下文）
+numalarm installs [--apply]                          # 多副本体检与收拢（见下文）
 numalarm hold [-m 60] / --clear                      # 暂停/恢复自动提醒（自动继续回合用）
 ```
 
@@ -261,11 +294,13 @@ media:
 ```bash
 numalarm hook install      # 自动探测已安装的兼容宿主并注册（幂等，先备份）
 numalarm hook status       # 查看注册状态
-numalarm hook uninstall    # 移除（只删自身条目，其余配置保留）
+numalarm hook uninstall    # 移除拨打类 hook（心跳 hook 与其余配置保留）
+numalarm hook install --host claude    # 只注册到指定宿主（workbuddy / claude / codebuddy）
 numalarm hook install --settings "D:/我的Agent/settings.json"   # 任意兼容宿主：手动指定配置路径
 ```
 
 - 支持宿主：任何兼容 Claude Code hooks 配置规范（`settings.json`）的 Agent 宿主；`hook install` 自动探测本机常见宿主，其他兼容宿主用 `--settings <路径>` 指定，不限于内置名单
+- 作用域：不传参数时默认写**全部已探测宿主**；`--host <名>` / `--settings <路径>` 可限定；设置环境变量 `NUMALARM_HOOK_SCOPE=current` 可把默认切换为「仅当前安装所在宿主」
 - 注册事件：`Notification`（Agent 需要用户注意）+ `PermissionRequest`（等待用户批准）+ `Stop`（Agent 回合结束=任务交付时刻）——配合在位检测，实现「人离开电脑后任务完成自动响铃；人在电脑前零打扰」
 - hook 命令：`NUMALARM_CONFIG=... pythonw -m numalarm.interfaces.cli call --silent --auto`（async 异步不阻塞，无黑框，受用户在位检测控制）
 - 自带防轰炸：防抖窗口内重复触发只拨一次；重拨会话持锁期间后续触发直接返回 503 静默退出
@@ -286,7 +321,8 @@ Stop/Notification 等 hook 由宿主进程执行——**Agent 进程硬崩溃（
 ```bash
 numalarm watchdog install      # 注册计划任务 + 心跳 hook（跨宿主通用）
 numalarm watchdog status       # 查看注册状态
-numalarm watchdog uninstall    # 移除（拨打类 hook 不受影响）
+numalarm watchdog uninstall    # 移除心跳 hook 与计划任务（拨打类 hook 不受影响）
+numalarm watchdog install --host claude   # 心跳 hook 只写指定宿主（计划任务本身始终全机唯一）
 ```
 
 **跨宿主通用**：兼容 hooks 的宿主由 PreToolUse hook 自动刷新心跳；无 hook 机制的宿主（任何能跑命令的 Agent）按 SKILL.md 约定在长任务中定期运行 `numalarm heartbeat` 即可接入同一个看门狗。
@@ -318,13 +354,28 @@ numalarm update
 
 完成后建议运行 `numalarm test` 校准，并重启宿主会话使技能更新生效。手动方式（备选）：进入技能目录 `git stash && git pull && git stash pop`，再同步 `.venv` 依赖与 `numalarm hook install`。
 
+## 多副本体检与收拢
+
+同一台电脑可能存在多份 numalarm（不同宿主的技能目录、开发目录、历史克隆），它们共享 `~/.numalarm` 状态并可能互相覆盖 hook 指向。体检与收拢：
+
+```bash
+numalarm installs                       # 列出全部副本：版本 / git HEAD / 是否有配置 / 模板是否已校准 / 被哪些宿主 hook 引用
+numalarm installs --json                # 机器可读输出（供 Agent 解析）
+numalarm installs --apply --dir <目录>  # 把各宿主 hook 统一改指到指定安装（先备份 .numalarm-bak）
+```
+
+- `install.py` 安装时自动体检：发现其他副本会打印清单，并在交互模式下询问是否**复用其 config.yaml 与已校准模板**（覆盖前自动备份到 `~/.numalarm/backups`）；
+- `numalarm doctor` 同样给出 `[提示]` 级的多副本报告，并检查 hook 命令指向的目录是否存在——指向缺失目录的 hook 会静默失效，doctor 会将其标为 FAIL；
+- 多份安装并存「能用但状态散乱」（共享的锁/防抖/hold/心跳会互相影响），建议最终收拢到一份。
+
 ## 卸载与零残留
 
 所有组件均可完全移除——依赖隔离在技能目录的独立虚拟环境中，不写入系统 Python，卸载后设备无任何残留：
 
 | 组件 | 清理方式 |
 |------|----------|
-| 宿主 Hook 注册 | `numalarm hook uninstall`（或 `numalarm uninstall` 自动处理） |
+| 宿主 Hook 注册（拨打类） | `numalarm hook uninstall`（只删拨打类；`numalarm uninstall` 全量处理） |
+| 看门狗计划任务与心跳 hook（若装过） | `numalarm watchdog uninstall`（只删心跳类） |
 | 桌面快捷方式（旧版本创建的） | `numalarm uninstall` 逐个确认删除（shortcut 功能已在 v1.0.3 移除） |
 | 运行时状态（`~/.numalarm`：防抖记录与锁文件） | `numalarm uninstall` 自动清理 |
 | Agent 长期记忆中的约定登记 | 由 Agent 自行删除（`numalarm uninstall` 结束时会提醒；numalarm 无法访问宿主的记忆系统） |
@@ -366,6 +417,9 @@ QQ NT 版本不响应 Ctrl+F，且部分版本回车不选中搜索结果。保�
 **Q：误触发怎么办？**
 拨打过程中把鼠标快速移到屏幕左上角可强制中断（pyautogui failsafe）。
 
+**Q：电脑上装过好几份 numalarm，会互相打架吗？**
+不会双拨：全局互斥锁 + 共享防抖状态兜底。但状态会互相影响（心跳/防抖/hold 位于全机共享的 `~/.numalarm`）。运行 `numalarm installs` 查看全部副本，`numalarm installs --apply --dir <目录>` 可把各宿主 hook 统一指向一份安装；`install.py` 也会在安装时自动体检并提示。
+
 ## 目录结构
 
 ```
@@ -379,8 +433,12 @@ numalarm/
 ├── pyproject.toml        # 打包配置（numalarm 命令入口 + ruff 规范）
 ├── config.example.yaml   # 配置示例（复制为 config.yaml 使用）
 ├── conftest.py           # pytest 根目录导入支持
+├── install.py            # 一键安装器（仅标准库，幂等；见「安装」）
 ├── tests/                # 单元测试（纯逻辑，跨平台可跑）
-│   └── test_numalarm.py
+│   ├── test_numalarm.py
+│   ├── test_installations.py   # 安装副本探测与 hook 命令解析
+│   ├── test_cli_hooks.py       # hook 分类/卸载/作用域回归
+│   └── test_installer.py       # 安装器步骤计算与参数
 ├── .github/workflows/    # CI（Ubuntu 测试矩阵 + Windows 冒烟）
 ├── assets/
 │   ├── voice_button_sample.png   # 语音按钮模板
@@ -399,6 +457,7 @@ numalarm/
     │   └── cli.py        # CLI + 宿主 Hook 管理
     └── common/           # 通用基础组件
         ├── config.py     # 配置加载与管理
+        ├── installations.py # 安装副本探测与 hook 命令解析（仅标准库）
         ├── lock.py       # 全局互斥锁（进程内 + 跨进程文件锁）
         ├── logger.py     # 统一日志（支持静默）
         └── exceptions.py # 自定义异常与状态码

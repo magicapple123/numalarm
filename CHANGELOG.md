@@ -1,5 +1,18 @@
 # 更新日志
 
+## v1.1.0（2026-10-02）
+
+- 新增 `install.py` 一键安装器：仅标准库、幂等可重复执行、`--dry-run` 零副作用、`--yes` 非交互；自动判定当前宿主并只向该宿主注册 hook（非交互默认不注册——涉及真实拨打）
+- 新增多副本体检与收拢：`numalarm installs [--json] [--apply]`；安装时自动发现其他 numalarm 副本，可复用其 config.yaml 与已校准模板（覆盖前自动备份到 ~/.numalarm/backups）
+- `hook install` / `hook uninstall` / `watchdog install` / `watchdog uninstall` 新增 `--host` / `--settings` 作用域（默认仍为全部已探测宿主；`NUMALARM_HOOK_SCOPE=current` 可切为仅当前宿主）；计划任务保持全机唯一
+- 修复 `watchdog uninstall` 误删拨打类 hook：hook 按命令分类（拨打/心跳），卸载只删各自类型；无法分类的条目宁留不误删并提示
+- 修复窗口匹配可能误配外部窗口（浏览器标签标题恰好含「QQ」/目标昵称）：窗口查找/激活/等待全面支持进程过滤；同步修复负坐标窗口导致的图片匹配静默失败、超宽窗口无法归位、激活后尺寸异常
+- 修复 `call_elapsed_seconds` 在接听/拒绝路径固定为 0；hold 跳过的日志与返回文案不再误报「用户在电脑前」
+- doctor 增强：新增 `[提示]` 行；检查 hook 命令指向目录是否存在（缺失即 FAIL）、多副本报告、运行环境与生效配置；配置解析错误不再静默（`ConfigManager.load_error`）
+- hook 命令优先内嵌安装目录内 `.venv` 的解释器（免黑框）；update 改为同时刷新拨打+心跳 hook、校验依赖同步退出码、修复非 Windows 虚拟环境路径
+- `requirements.txt` 添加 UTF-8 BOM：修复中文注释在 GBK 默认编码环境下 pip 解析报 UnicodeDecodeError（无需改动注释）
+- 文档与 CI：README 新增「安装范围与全机副作用」「多副本体检与收拢」，SKILL.md 清理过时条目；CI 纳入 install.py（编译 / ruff / `--help` 冒烟）
+
 ## v1.0.3（2026-10-02）
 
 - 移除桌面快捷方式功能（纯人工入口，与 Agent 自动提醒主线无关；手动呼叫可直接对 Agent 说「打给某人」）

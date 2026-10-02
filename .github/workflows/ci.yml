@@ -28,10 +28,13 @@ jobs:
           pip install pydantic==2.10.3 PyYAML==6.0.2 click==8.1.8 fastapi==0.115.6 uvicorn==0.34.0 psutil==6.1.0 pytest ruff
 
       - name: 语法检查
-        run: python -m compileall -q numalarm
+        run: python -m compileall -q numalarm install.py
 
       - name: 代码规范（ruff）
-        run: ruff check numalarm tests
+        run: ruff check numalarm tests install.py
+
+      - name: 安装器冒烟
+        run: python install.py --help
 
       - name: 单元测试
         run: pytest -q
@@ -54,5 +57,6 @@ jobs:
 
       - name: 语法与导入冒烟
         run: |
-          python -m compileall -q numalarm
+          python -m compileall -q numalarm install.py
           python -c "import numalarm; print('numalarm', numalarm.__version__)"
+          python install.py --help

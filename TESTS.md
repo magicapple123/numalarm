@@ -31,6 +31,18 @@ cfg = NumAlarmConfig(**yaml.safe_load(open('config.example.yaml', encoding='utf-
 print('example config ok:', cfg.server.port)"
 ```
 
+## 0.5 安装器与多副本体检（v1.1.0 新增）
+
+| 编号 | 用例 | 步骤 | 预期 |
+|------|------|------|------|
+| TC-200 | 安装器演练 | `python install.py --dry-run` | 只打印计划、不建 venv/不写盘；能列出已发现的其它副本 |
+| TC-201 | 安装器幂等 | 连续两次 `python install.py --yes` | 第二遍所有步骤自动跳过，不覆盖 config.yaml 与校准模板 |
+| TC-202 | 非交互默认安全 | `python install.py --yes`（不带 --hooks） | 不注册任何 hook，仅打印可复制的注册命令 |
+| TC-203 | 多副本体检 | `numalarm installs` / `numalarm installs --json` | 列出全部副本与 hook 指向；doctor 输出对应 `[提示]` 行 |
+| TC-204 | 收拢 | `numalarm installs --apply --dir <安装目录>` | 各宿主 numalarm hook 统一改指目标安装（先备份 .numalarm-bak） |
+| TC-205 | 卸载分类 | 在备份过的 settings.json 上分别执行 `hook uninstall` / `watchdog uninstall` | 前者只删拨打类、后者只删心跳类，互不影响 |
+| TC-206 | hook 指向缺失目录 | 构造指向不存在目录的 hook，运行 `numalarm doctor` | 对应检查项 FAIL 并提示重新注册 |
+
 ## 1. 校准测试（不拨打，优先执行）
 
 | 编号 | 用例 | 步骤 | 预期 |

@@ -25,6 +25,14 @@ import click
 from numalarm import __version__
 from numalarm.common.config import CONFIG_ENV, ConfigManager, clear_hold, hold_active, set_hold
 from numalarm.common.exceptions import CODE_SUCCESS
+from numalarm.common.installations import (
+    KNOWN_HOST_NAMES,
+    collect_hook_refs,
+    detect_skill_host,
+    discover_installs,
+    hook_kind,
+    is_numalarm_command,
+)
 
 
 def _echo_result(result: dict, quiet: bool = False) -> None:
@@ -151,6 +159,10 @@ def doctor() -> None:
         click.echo(f"[{mark}] {name}{suffix}")
         return ok
 
+    def info(name: str, detail: str = "") -> None:
+        """提示行：展示信息但不计入通过/失败（不影响退出码）。"""
+        click.echo(f"[提示] {name}" + (f"  -> {detail}" if detail else ""))
+
     # 1. 必需依赖
     deps = {"pyautogui": "UI 自动化", "cv2": "图片匹配(opencv-python)", "PIL": "截图(Pillow)",
             "psutil": "进程检测", "yaml": "配置(PyYAML)", "pydantic": "参数校验",
@@ -198,6 +210,35 @@ def doctor() -> None:
         except ImportError:
             check("pywin32（语音提醒）", False, "pip install pywin32（不影响核心拨打，仅影响接听后语音提醒）")
 
+    # 6. 配置解析错误可见性（损坏的 config.yaml 会被静默回退默认值）
+    load_err = getattr(ConfigManager.instance(), "load_error", None)
+    check("配置文件可解析", not load_err,
+          f"{load_err}（已回退默认值，所有配置项不生效；修复后重跑 doctor）")
+
+    # 7. hook 引用完整性：命令指向的安装目录必须存在，否则 hook 会静默失效
+    settings_map = {name: p for name, p in KNOWN_HOSTS.items() if p.is_file()}
+    refs = collect_hook_refs(settings_map)
+    broken = [r for r in refs if r.install_dir is None or not r.install_dir.is_dir()]
+    check(f"hook 命令指向目录存在（{len(refs)} 条引用）", not broken,
+          "存在指向缺失目录的 hook（会静默失效）；运行 numalarm hook install --host <宿主> 重新指向")
+
+    # 8. 多副本体检与环境提示（提示行，不计入通过/失败）
+    installs = discover_installs(_current_install_dir())
+    others = [i for i in installs if not i.is_current]
+    for one in others:
+        state = "存在" if one.exists else "目录缺失"
+        ver = f"v{one.version}" if one.version else "版本未知"
+        head = f"，git {one.git_head}" if one.git_head else ""
+        cfg_state = "，有 config" if one.has_config else ""
+        calib = "，模板已校准" if one.git_dirty_assets else ""
+        info(f"发现其他 numalarm 副本（{state}）", f"{one.path}（{ver}{head}{cfg_state}{calib}）")
+    if others:
+        info("多副本提示", "多份安装共享 ~/.numalarm（锁/防抖/hold/心跳）；"
+                           "numalarm installs 查看详情，installs --apply 统一 hook 指向")
+    info("运行环境", f"虚拟环境 {sys.prefix}" if sys.prefix != sys.base_prefix else "系统 Python（建议按 README 使用 .venv）")
+    effective_cfg = ConfigManager.find_config_file()
+    info("生效配置", str(effective_cfg) if effective_cfg else "未找到，使用内置默认值")
+
     # 汇总
     failed = results.count(False)
     if failed:
@@ -215,9 +256,9 @@ def uninstall(yes: bool) -> None:
     """
     click.echo("== 牛马铃卸载清理 ==")
 
-    # 1) 宿主 Hook 注册
-    click.echo("\n[1/4] 宿主 Hook 注册")
-    _remove_numalarm_hooks([p for p in KNOWN_HOSTS.values() if p.is_file()])
+    # 1) 宿主 Hook 注册（拨打 + 心跳，全量移除）
+    click.echo("\n[1/4] 宿主 Hook 注册（拨打 + 心跳）")
+    _remove_numalarm_hooks([p for p in KNOWN_HOSTS.values() if p.is_file()], kinds=None)
 
     # 2) 桌面快捷方式（仅 Windows）
     click.echo("\n[2/4] 桌面快捷方式")
@@ -375,7 +416,8 @@ def update(install_dir_opt: Optional[Path]) -> None:
 
     # 5. 同步虚拟环境依赖
     venv_dir = install_dir / ".venv"
-    venv_python = venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / "python.exe"
+    venv_python = venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / (
+        "python.exe" if sys.platform == "win32" else "python")
     if venv_python.is_file():
         click.echo("正在同步虚拟环境依赖…")
         r = subprocess.run([str(venv_python), "-m", "pip", "install", "-r", "requirements.txt"],
@@ -384,12 +426,18 @@ def update(install_dir_opt: Optional[Path]) -> None:
         tail = (r.stdout or r.stderr or "").strip().splitlines()[-3:]
         for line in tail:
             click.echo(f"  {line}")
+        if r.returncode != 0:
+            click.echo(f"[失败] 依赖同步失败（退出码 {r.returncode}），请手动运行："
+                       f"\"{venv_python}\" -m pip install -r requirements.txt")
+            sys.exit(1)
     else:
         click.echo("未检测到虚拟环境（.venv），跳过依赖同步")
 
-    # 6. 刷新已有宿主上的 hook 命令（不扩大注册范围）
-    _register_hooks({event: _hook_command() for event in HOOK_EVENTS},
-                    [p for p in KNOWN_HOSTS.values() if p.is_file()], create_missing=False)
+    # 6. 刷新已有宿主上的 hook 命令（拨打 + 心跳，均不扩大注册范围）
+    existing_hosts = [p for p in KNOWN_HOSTS.values() if p.is_file()]
+    _register_hooks({event: _hook_command() for event in HOOK_EVENTS}, existing_hosts, create_missing=False)
+    _register_hooks({"PreToolUse": _hook_cmdline("heartbeat"), "SessionEnd": _hook_cmdline("heartbeat --clear")},
+                    existing_hosts, create_missing=False)
 
     # 7. 报告新版本
     try:
@@ -479,8 +527,12 @@ def _watchdog_script_text() -> str:
 
 
 @watchdog.command("install")
-def watchdog_install() -> None:
-    """注册每分钟一次的看门狗计划任务（Windows 计划任务 / 其他平台 crontab）。"""
+@click.option("--host", "hosts", default=None,
+              help="心跳 hook 目标宿主：workbuddy / claude / codebuddy / all；默认自动探测（计划任务本身始终全机注册）")
+@click.option("--settings", "settings_paths", multiple=True, type=click.Path(dir_okay=False, path_type=Path),
+              help="自定义宿主的 settings.json 路径（心跳 hook 写入目标），可多次传入；优先于 --host")
+def watchdog_install(hosts: Optional[str], settings_paths: tuple) -> None:
+    """注册每分钟一次的看门狗计划任务（全机唯一），并向目标宿主注册心跳 hook。"""
     if sys.platform == "win32":
         script = _watchdog_script_path()
         script.write_text(_watchdog_script_text(), encoding="utf-8")
@@ -508,19 +560,25 @@ def watchdog_install() -> None:
                 sys.exit(1)
             click.echo("[OK] crontab 看门狗已注册（每分钟检查一次）")
 
-    # 心跳来源注册：PreToolUse 刷新心跳 / SessionEnd 清心跳
+    # 心跳来源注册：PreToolUse 刷新心跳 / SessionEnd 清心跳（作用域由 --host/--settings 决定）
     hb_cmd = _hook_cmdline("heartbeat")
     hb_clear_cmd = _hook_cmdline("heartbeat --clear")
-    _register_hooks({"PreToolUse": hb_cmd, "SessionEnd": hb_clear_cmd},
-                    [p for p in KNOWN_HOSTS.values() if p.is_file()], create_missing=True)
-    click.echo("心跳来源：兼容宿主由 PreToolUse hook 自动刷新；"
-               "无 hook 机制的宿主请在长任务中定期运行 numalarm heartbeat（见 SKILL.md）")
+    targets = _resolve_hook_targets(hosts, settings_paths)
+    if targets:
+        _register_hooks({"PreToolUse": hb_cmd, "SessionEnd": hb_clear_cmd}, targets, create_missing=True)
+    else:
+        click.echo("[注意] 未确定心跳 hook 目标宿主（可用 --host/--settings 指定）；"
+                   "无 hook 机制的宿主可在长任务中定期运行 numalarm heartbeat（见 SKILL.md）")
+    click.echo("计划任务为全机唯一（--host/--settings 只影响心跳 hook 写入范围）")
     click.echo("移除：numalarm watchdog uninstall")
 
 
 @watchdog.command("uninstall")
-def watchdog_uninstall() -> None:
-    """移除看门狗计划任务与心跳 hook 注册（保留拨打类 hook）。"""
+@click.option("--host", "hosts", default=None, help="心跳 hook 目标宿主：workbuddy / claude / codebuddy / all；默认自动探测")
+@click.option("--settings", "settings_paths", multiple=True, type=click.Path(dir_okay=False, path_type=Path),
+              help="自定义宿主的 settings.json 路径，可多次传入；优先于 --host")
+def watchdog_uninstall(hosts: Optional[str], settings_paths: tuple) -> None:
+    """移除看门狗计划任务（全机唯一）与心跳 hook（只删心跳类，拨打类 hook 不受影响）。"""
     if sys.platform == "win32":
         r = subprocess.run(["schtasks", "/Delete", "/F", "/TN", WATCHDOG_TASK_NAME],
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -532,7 +590,7 @@ def watchdog_uninstall() -> None:
             kept = [line for line in (r.stdout or "").splitlines() if "numalarm" not in line]
             subprocess.run(["crontab", "-"], input="\n".join(kept) + "\n", text=True, capture_output=True)
         click.echo("[OK] crontab 看门狗已移除")
-    _remove_numalarm_hooks([p for p in KNOWN_HOSTS.values() if p.is_file()])
+    _remove_numalarm_hooks(_resolve_hook_targets(hosts, settings_paths), kinds={"heartbeat"})
     click.echo("心跳 hook 已移除（拨打类 hook 不受影响）")
 
 
@@ -573,25 +631,50 @@ def main() -> None:
 # 兼容 Claude Code hooks schema 的宿主（WorkBuddy / Claude Code / CodeBuddy 等）
 # Stop = Agent 回合结束（任务交付时刻）：配合在位检测实现「人离开后任务完成自动响铃」
 HOOK_EVENTS = ("Notification", "PermissionRequest", "Stop")
-KNOWN_HOSTS = {
-    "workbuddy": Path.home() / ".workbuddy" / "settings.json",
-    "claude": Path.home() / ".claude" / "settings.json",
-    "codebuddy": Path.home() / ".codebuddy" / "settings.json",
-}
+KNOWN_HOSTS = {name: Path.home() / f".{name}" / "settings.json" for name in KNOWN_HOST_NAMES}
+
+# hook/watchdog 的默认作用域：detected=所有已探测宿主（默认，兼容既有行为）；
+# current=仅当前安装所在宿主（设置环境变量 NUMALARM_HOOK_SCOPE=current 切换）
+HOOK_SCOPE_DEFAULT = os.environ.get("NUMALARM_HOOK_SCOPE", "detected")
+
+
+def _current_install_dir() -> Path:
+    """当前代码所在的安装目录。"""
+    return Path(__file__).resolve().parents[2]
+
+
+def _resolve_embed_python(install_dir: Path) -> Path:
+    """hook 内嵌解释器：优先安装目录内 .venv 的 pythonw（免黑框）/python，缺则回退当前解释器。"""
+    scripts = install_dir / ".venv" / ("Scripts" if sys.platform == "win32" else "bin")
+    names = ("pythonw.exe", "python.exe") if sys.platform == "win32" else ("python",)
+    for name in names:
+        candidate = scripts / name
+        if candidate.is_file():
+            return candidate.resolve()
+    python_exe = Path(sys.executable)
+    pythonw = python_exe.with_name("pythonw.exe")
+    return (pythonw if pythonw.is_file() else python_exe).resolve()
+
+
+def _hook_cmdline_for(cli_args: str, *, install_dir: Path, config_path: Path, python_exe: Path) -> str:
+    """按指定安装目录/配置/解释器生成 hook 命令行（cd 固定安装目录，配置路径写死）。"""
+    return (
+        f"cd '{install_dir.as_posix()}' && "
+        f"NUMALARM_CONFIG='{config_path.as_posix()}' '{python_exe.as_posix()}' "
+        f"-m numalarm.interfaces.cli {cli_args}"
+    )
 
 
 def _hook_cmdline(cli_args: str) -> str:
     """生成 hook 命令行：cd 固定到安装目录（保证 numalarm 包可导入），配置路径写死。"""
     cfg = ConfigManager.instance()
     config_path = (cfg.config_path or (Path.cwd() / "config.yaml")).resolve()
-    python_exe = Path(sys.executable)
-    pythonw = python_exe.with_name("pythonw.exe")
-    py = (pythonw if pythonw.is_file() else python_exe).resolve()
-    install_dir = Path(__file__).resolve().parents[2]
-    return (
-        f"cd '{install_dir.as_posix()}' && "
-        f"NUMALARM_CONFIG='{config_path.as_posix()}' '{py.as_posix()}' "
-        f"-m numalarm.interfaces.cli {cli_args}"
+    install_dir = _current_install_dir()
+    return _hook_cmdline_for(
+        cli_args,
+        install_dir=install_dir,
+        config_path=config_path,
+        python_exe=_resolve_embed_python(install_dir),
     )
 
 
@@ -618,6 +701,10 @@ def _resolve_hook_targets(hosts: Optional[str], settings_paths: tuple) -> List[P
         if hosts not in KNOWN_HOSTS:
             raise click.BadParameter(f"未知宿主 {hosts}（可选：{', '.join(KNOWN_HOSTS)} / all）")
         return [KNOWN_HOSTS[hosts]]
+    if hosts is None and HOOK_SCOPE_DEFAULT == "current":
+        # 仅当前安装所在宿主（安装器与「严格单宿主」用户使用；由安装目录反推宿主名）
+        host = detect_skill_host(_current_install_dir())
+        return [KNOWN_HOSTS[host]] if host else []
     return [p for p in KNOWN_HOSTS.values() if p.is_file()]
 
 
@@ -699,8 +786,28 @@ def _register_hooks(event_cmds: Dict[str, str], targets: List[Path], create_miss
         click.echo(f"[OK] {settings_path} 已注册/更新 hook：{', '.join(changed)}（备份：{backup.name}）")
 
 
-def _remove_numalarm_hooks(targets: List[Path]) -> None:
-    """从指定 settings.json 中移除全部 numalarm 注册的 hook（扫描所有事件，只删自身条目）。"""
+def _entry_numalarm_kinds(entry: Any) -> set:
+    """entry 内部 numalarm 命令的种类集合；无法分类的命令记入 ``"unknown"``。"""
+    kinds = set()
+    if not isinstance(entry, dict):
+        return kinds
+    for h in entry.get("hooks") or []:
+        if not isinstance(h, dict):
+            continue
+        cmd = h.get("command")
+        if isinstance(cmd, str) and is_numalarm_command(cmd):
+            kinds.add(hook_kind(cmd) or "unknown")
+    return kinds
+
+
+def _remove_numalarm_hooks(targets: List[Path], kinds: Optional[set] = None) -> None:
+    """从指定 settings.json 中移除 numalarm 注册的 hook（只删自身条目，其余配置原样保留）。
+
+    :param kinds: None=整条移除全部 numalarm 条目（numalarm uninstall 使用）；
+        ``{"dial"}``/``{"heartbeat"}``=只移除对应类型的内部 hook，条目中其余 hooks
+        原样保留（hook uninstall 只删拨打类、watchdog uninstall 只删心跳类）；
+        无法分类的 numalarm 命令一律保留并提示（宁留不误删）。
+    """
     for settings_path in targets:
         if not settings_path.is_file():
             continue
@@ -712,17 +819,50 @@ def _remove_numalarm_hooks(targets: List[Path]) -> None:
             continue
         hooks_cfg = data.get("hooks") or {}
         removed = []
+        unclassified = 0
         for event in list(hooks_cfg.keys()):
             entries = hooks_cfg.get(event) or []
-            kept = [e for e in entries if not _entry_has_numalarm(e)]
-            if len(kept) != len(entries):
+            if not isinstance(entries, list):
+                continue
+            kept_entries = []
+            event_changed = False
+            for entry in entries:
+                if not (isinstance(entry, dict) and _entry_has_numalarm(entry)):
+                    kept_entries.append(entry)
+                    continue
+                if kinds is None:
+                    event_changed = True  # 整条移除
+                    continue
+                inner = entry.get("hooks")
+                if not isinstance(inner, list):
+                    kept_entries.append(entry)  # 形状异常：保守保留
+                    continue
+                kept_inner = []
+                for h in inner:
+                    cmd = h.get("command") if isinstance(h, dict) else None
+                    if isinstance(cmd, str) and is_numalarm_command(cmd):
+                        k = hook_kind(cmd)
+                        if k in kinds:
+                            event_changed = True
+                            continue  # 命中目标类型：移除该条
+                        if k is None:
+                            unclassified += 1  # 无法分类：保留并统计
+                    kept_inner.append(h)
+                if kept_inner:
+                    new_entry = dict(entry)
+                    new_entry["hooks"] = kept_inner
+                    kept_entries.append(new_entry)
+                # kept_inner 为空：整条 entry 不再保留
+            if event_changed:
                 removed.append(event)
-                if kept:
-                    hooks_cfg[event] = kept
+                if kept_entries:
+                    hooks_cfg[event] = kept_entries
                 else:
                     hooks_cfg.pop(event, None)
+        if unclassified:
+            click.echo(f"[注意] {settings_path} 有 {unclassified} 条无法分类的 numalarm 条目已保留，请手动检查")
         if not removed:
-            click.echo(f"[跳过] {settings_path} 无 numalarm hook")
+            click.echo(f"[跳过] {settings_path} 无匹配的 numalarm hook")
             continue
         backup = settings_path.with_name(settings_path.name + ".numalarm-bak")
         try:
@@ -739,8 +879,8 @@ def _remove_numalarm_hooks(targets: List[Path]) -> None:
 @click.option("--settings", "settings_paths", multiple=True, type=click.Path(dir_okay=False, path_type=Path),
               help="自定义宿主的 settings.json 路径，可多次传入；优先于 --host")
 def hook_uninstall(hosts: Optional[str], settings_paths: tuple) -> None:
-    """移除由 numalarm 注册的 hook（只删自身条目，其余配置原样保留）。"""
-    _remove_numalarm_hooks(_resolve_hook_targets(hosts, settings_paths))
+    """移除 numalarm 注册的拨打类 hook（心跳 hook 与其余配置原样保留）。"""
+    _remove_numalarm_hooks(_resolve_hook_targets(hosts, settings_paths), kinds={"dial"})
 
 
 @hook.command("status")
@@ -768,6 +908,143 @@ def hook_status(settings_paths: tuple) -> None:
                     break
         state = "已注册：" + "、".join(found) if found else "未注册"
         click.echo(f"{name:<10} {state}")
+
+
+def _rewrite_hooks_for_install(targets: List[Path], *, install_dir: Path, config_path: Path, python_exe: Path) -> None:
+    """把目标 settings.json 中全部 numalarm hook 命令改写为指向指定安装（先备份）。
+
+    拨打类与心跳类分别按生成器重写；无法分类的 numalarm 命令保守跳过。
+    """
+    new_dial = _hook_cmdline_for("call --silent --auto", install_dir=install_dir,
+                                 config_path=config_path, python_exe=python_exe)
+    new_hb = _hook_cmdline_for("heartbeat", install_dir=install_dir,
+                               config_path=config_path, python_exe=python_exe)
+    new_hb_clear = _hook_cmdline_for("heartbeat --clear", install_dir=install_dir,
+                                     config_path=config_path, python_exe=python_exe)
+    for settings_path in targets:
+        if not settings_path.is_file():
+            continue
+        try:
+            raw = settings_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (OSError, json.JSONDecodeError) as exc:
+            click.echo(f"[跳过] {settings_path} 不可读：{exc}")
+            continue
+        hooks_cfg = data.get("hooks") or {}
+        changed = []
+        for event, entries in hooks_cfg.items():
+            if not isinstance(entries, list):
+                continue
+            event_changed = False
+            for entry in entries:
+                if not (isinstance(entry, dict) and _entry_has_numalarm(entry)):
+                    continue
+                for h in entry.get("hooks") or []:
+                    if not isinstance(h, dict):
+                        continue
+                    cmd = h.get("command")
+                    if not (isinstance(cmd, str) and is_numalarm_command(cmd)):
+                        continue
+                    if hook_kind(cmd) is None:
+                        continue  # 无法分类：保留原样
+                    if "heartbeat --clear" in cmd:
+                        new_cmd = new_hb_clear
+                    elif hook_kind(cmd) == "heartbeat":
+                        new_cmd = new_hb
+                    else:
+                        new_cmd = new_dial
+                    if new_cmd != cmd:
+                        h["command"] = new_cmd
+                        event_changed = True
+            if event_changed:
+                changed.append(event)
+        if not changed:
+            click.echo(f"[跳过] {settings_path} 无需改写")
+            continue
+        backup = settings_path.with_name(settings_path.name + ".numalarm-bak")
+        try:
+            backup.write_text(raw, encoding="utf-8")
+            settings_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError as exc:
+            click.echo(f"[失败] {settings_path} 写入失败：{exc}")
+            continue
+        click.echo(f"[OK] {settings_path} 已改指：{', '.join(changed)}（备份：{backup.name}）")
+
+
+@cli.command("installs")
+@click.option("--json", "as_json", is_flag=True, help="以 JSON 输出（供 Agent 解析）")
+@click.option("--apply", "apply_", is_flag=True, help="将各宿主 numalarm hook 统一改指到目标安装（先备份）")
+@click.option("--dir", "target_dir_opt", type=click.Path(exists=True, file_okay=False, path_type=Path),
+              default=None, help="--apply 的目标安装目录（默认为当前代码所在安装目录）")
+@click.option("--yes", "-y", is_flag=True, help="--apply 时跳过风险确认")
+def installs_cmd(as_json: bool, apply_: bool, target_dir_opt: Optional[Path], yes: bool) -> None:
+    """多副本体检：列出本机全部 numalarm 安装副本；--apply 可统一各宿主 hook 指向。"""
+    current = _current_install_dir()
+    infos = discover_installs(current)
+    if as_json:
+        payload = [
+            {
+                "path": str(i.path),
+                "sources": list(i.sources),
+                "hosts": list(i.hosts),
+                "is_current": i.is_current,
+                "exists": i.exists,
+                "version": i.version,
+                "git_head": i.git_head,
+                "calibrated_assets": list(i.git_dirty_assets),
+                "has_config": i.has_config,
+                "has_venv": i.has_venv,
+            }
+            for i in infos
+        ]
+        click.echo(json.dumps({"current": str(current), "installs": payload}, ensure_ascii=False, indent=2))
+    else:
+        click.echo(f"共发现 {len(infos)} 个 numalarm 安装副本（当前：{current}）")
+        for i in infos:
+            flags = []
+            if i.is_current:
+                flags.append("当前")
+            if not i.exists:
+                flags.append("目录缺失")
+            if i.version:
+                flags.append(f"v{i.version}")
+            if i.git_head:
+                flags.append(f"git {i.git_head}")
+            if i.has_config:
+                flags.append("有 config")
+            if i.git_dirty_assets:
+                flags.append("模板已校准")
+            if i.has_venv:
+                flags.append(".venv")
+            host_part = f"  ← {('、'.join(i.hosts))}" if i.hosts else ""
+            click.echo(f"  {i.path}{host_part}")
+            click.echo(f"      [{(' | '.join(flags)) or '无附加信息'}]  来源：{'+'.join(i.sources)}")
+        if len(infos) > 1:
+            click.echo("提示：多份安装共享 ~/.numalarm 状态（锁/防抖/hold/心跳）；")
+            click.echo("可用 numalarm installs --apply --dir <目录> 将各宿主 hook 统一指向一份安装。")
+
+    if not apply_:
+        return
+    target = (target_dir_opt or current).resolve()
+    if not (target / "numalarm").is_dir():
+        click.echo(f"[失败] {target} 不是 numalarm 安装目录")
+        sys.exit(1)
+    warnings = []
+    if not (target / "config.yaml").is_file():
+        warnings.append(f"{target} 缺少 config.yaml（hook 触发将使用内置默认值）")
+    if not (target / ".venv").exists():
+        warnings.append(f"{target} 缺少 .venv（hook 命令将回退系统解释器）")
+    if warnings:
+        for w in warnings:
+            click.echo(f"[注意] {w}")
+        if not yes and not click.confirm(f"仍要将各宿主 hook 改指到 {target}？", default=False):
+            click.echo("已取消")
+            return
+    config_path = (target / "config.yaml").resolve()
+    python_exe = _resolve_embed_python(target)
+    targets = [p for p in KNOWN_HOSTS.values() if p.is_file()]
+    _rewrite_hooks_for_install(targets, install_dir=target, config_path=config_path, python_exe=python_exe)
+    click.echo("完成：重启对应宿主会话后生效。")
 
 
 if __name__ == "__main__":

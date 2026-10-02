@@ -205,6 +205,7 @@ class ConfigManager:
 
     def __init__(self, config_path: Optional[Path] = None) -> None:
         self.config_path: Optional[Path] = config_path or self.find_config_file()
+        self.load_error: Optional[str] = None
         self.config: NumAlarmConfig = self._load(self.config_path)
 
     @classmethod
@@ -231,8 +232,9 @@ class ConfigManager:
         pkg_root = Path(__file__).resolve().parents[2] / CONFIG_FILENAME
         return pkg_root if pkg_root.is_file() else None
 
-    @staticmethod
-    def _load(path: Optional[Path]) -> NumAlarmConfig:
+    def _load(self, path: Optional[Path]) -> NumAlarmConfig:
+        """加载配置；失败时记录 ``load_error`` 并回退内置默认值（保证工具整体可用）。"""
+        self.load_error = None
         if path is None:
             return NumAlarmConfig()
         try:
@@ -240,9 +242,11 @@ class ConfigManager:
                 raw = yaml.safe_load(f) or {}
             return NumAlarmConfig(**raw)
         except FileNotFoundError:
+            self.load_error = f"配置文件不存在：{path}"
             return NumAlarmConfig()
-        except (yaml.YAMLError, TypeError, ValueError):
-            # 配置文件损坏时回退默认值，保证工具整体可用
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
+            # 配置文件损坏时回退默认值；记录原因供 doctor 等上层提示
+            self.load_error = f"{path}：{exc.__class__.__name__}: {exc}"
             return NumAlarmConfig()
 
     def reload(self) -> NumAlarmConfig:
