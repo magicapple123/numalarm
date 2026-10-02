@@ -63,6 +63,26 @@ class CallOutcome(NamedTuple):
     extra: Dict[str, Any]        # 附加数据（按钮坐标、聊天窗口标题等）
 
 
+def _sanitize_region(region: Tuple[int, int, int, int]) -> Optional[Tuple[int, int, int, int]]:
+    """把窗口区域裁剪到虚拟屏幕之内。
+
+    pyscreeze 对负坐标区域会裁剪出空图并抛出误导性的「needle 尺寸大于 haystack」
+    错误，这里提前裁剪规避；返回 None 表示区域无效（完全在屏外或尺寸异常）。
+    """
+    x, y, w, h = (int(v) for v in region)
+    if w <= 0 or h <= 0:
+        return None
+    bounds = state_detector.virtual_screen_rect()
+    if bounds is not None:
+        bx, by, bw, bh = bounds
+        nx1, ny1 = max(x, bx), max(y, by)
+        nx2, ny2 = min(x + w, bx + bw), min(y + h, by + bh)
+        x, y, w, h = nx1, ny1, nx2 - nx1, ny2 - ny1
+    if w <= 0 or h <= 0:
+        return None
+    return x, y, w, h
+
+
 class DebounceStore:
     """防抖记录：同一目标在窗口期内重复调用仅执行第一次。
 
@@ -181,28 +201,39 @@ class CallExecutor:
                 attempt = 0
                 while True:
                     # 用户在位检测 + 提醒暂停（hold）：人在电脑前或 Agent 挂了免打扰牌时不打扰
-                    if auto and (self._user_active() or hold_active()):
+                    user_active = self._user_active()
+                    if auto and (user_active or hold_active()):
                         idle = state_detector.get_idle_seconds()
                         skipped = {
                             "skipped": True,
                             "outcome_kind": "skipped",
-                            "outcome": "已跳过（用户在电脑前）",
+                            "outcome": "已跳过（用户在电脑前）" if user_active else "已跳过（免打扰已挂）",
                             "attempts": attempt,
                             "user_idle_seconds": round(idle, 1) if idle >= 0 else None,
                         }
                         if reason:
                             skipped["reason"] = reason
                         if attempt == 0:
-                            logger.info("用户正在电脑前（键鼠空闲 %.0fs），跳过拨打", max(idle, 0))
+                            if user_active:
+                                logger.info("用户正在电脑前（键鼠空闲 %.0fs），跳过拨打", max(idle, 0))
+                                message = "已跳过拨打（用户正在电脑前）"
+                            else:
+                                logger.info("免打扰（hold）生效，跳过拨打")
+                                message = "已跳过拨打（免打扰已挂）"
                             return {
                                 "code": CODE_SUCCESS,
-                                "message": "已跳过拨打（用户正在电脑前）",
+                                "message": message,
                                 "data": skipped,
                             }
-                        logger.info("用户回到电脑前，停止剩余重拨（已拨打 %d 次）", attempt)
+                        if user_active:
+                            logger.info("用户回到电脑前，停止剩余重拨（已拨打 %d 次）", attempt)
+                            message = f"已拨打 {attempt} 次未触达，检测到用户在电脑前，停止重拨"
+                        else:
+                            logger.info("免打扰（hold）生效，停止剩余重拨（已拨打 %d 次）", attempt)
+                            message = f"已拨打 {attempt} 次未触达，免打扰已挂，停止重拨"
                         return {
                             "code": CODE_SUCCESS,
-                            "message": f"已拨打 {attempt} 次未触达，检测到用户在电脑前，停止重拨",
+                            "message": message,
                             "data": skipped,
                         }
 
@@ -343,6 +374,11 @@ class CallExecutor:
                 f"缺少语音按钮示例截图：{VOICE_BUTTON_SAMPLE}；"
                 "请按 assets/README.md 的说明截取聊天窗口「语音通话」按钮并保存为该文件"
             )
+        region = _sanitize_region(region)
+        if region is None:
+            raise VoiceButtonNotFoundError(
+                "匹配区域无效（窗口位于屏幕外或尺寸异常）；请将 QQ 窗口移回屏幕内后重试"
+            )
         attempts = max(int(m.max_retry), 0) + 1
         for i in range(1, attempts + 1):
             # 未命中视为一次失败（可重试）；组件异常才直接判定为配置问题
@@ -360,9 +396,11 @@ class CallExecutor:
                     logger.warning("语音按钮未匹配（第 %d/%d 次）", i, attempts)
                     time.sleep(self.config.timing.action_wait)
                     continue
-                raise VoiceButtonNotFoundError(
-                    f"图片匹配执行失败（通常为缺少 opencv-python）：{exc}"
-                ) from exc
+                if isinstance(exc, ValueError):
+                    raise VoiceButtonNotFoundError(
+                        f"匹配区域异常（区域尺寸小于模板或坐标为负）：{exc}"
+                    ) from exc
+                raise VoiceButtonNotFoundError(f"图片匹配执行失败：{exc}") from exc
             if box is not None:
                 logger.info("语音按钮匹配成功（第 %d/%d 次尝试）：%s", i, attempts, (box.x, box.y))
                 return int(box.x), int(box.y)
@@ -458,7 +496,8 @@ class CallExecutor:
         """等待通话窗口出现并返回其窗口信息；超时返回 None。"""
         deadline = time.time() + timeout
         while time.time() < deadline:
-            wins = state_detector.find_windows(self.config.call_window_hint)
+            wins = state_detector.find_windows(self.config.call_window_hint,
+                                               process_name=self.config.qq_process_name)
             if wins:
                 return wins[0]
             time.sleep(_OUTCOME_POLL)
@@ -499,7 +538,8 @@ class CallExecutor:
             bright = float(px)
         if bright <= 120:  # 深色 -> 通话窗口可见
             return win
-        info = state_detector.activate_window(self.config.call_window_hint)
+        info = state_detector.activate_window(self.config.call_window_hint,
+                                              process_name=self.config.qq_process_name)
         if info is not None:
             logger.debug("通话窗口被遮挡，已自动前置")
             time.sleep(0.3)
@@ -528,7 +568,7 @@ class CallExecutor:
             if win is None:
                 # 窗口出现后秒关：自然超时不可能这么快，按「已响应（接听/拒绝）」处理
                 logger.info("通话窗口在预热期关闭，判定：对方已接听或已拒绝")
-                return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+                return CallOutcome(OUTCOME_TERMINAL, time.time() - appeared_at, extra)
             if self._ringing_header_matches(ring_tpl, win):
                 ring_started = time.time()
                 logger.info("响铃状态确认（匹配「等待对方接听」模板）")
@@ -569,7 +609,7 @@ class CallExecutor:
                             break
                         time.sleep(0.3)
                     if confirmed:
-                        return self._handle_state_change(extra)
+                        return self._handle_state_change(extra, appeared_at)
                     # 复检恢复响铃 → 判定为瞬时闪烁，继续监控
                 else:
                     # 仍在响铃：响铃超时主动挂断，以便快速进入下一轮（QQ 自然超时可能数分钟）
@@ -580,12 +620,13 @@ class CallExecutor:
                                     break
                                 time.sleep(_OUTCOME_POLL)
                             logger.info("响铃超过 %.0fs 已主动挂断，判定：无人接听", ring_limit)
-                            return CallOutcome(OUTCOME_NO_ANSWER, 0.0, extra)
+                            return CallOutcome(OUTCOME_NO_ANSWER, time.time() - appeared_at, extra)
                         # 挂断按钮定位失败：稍后再试（推迟 2s 避免密集重试）
                         ring_started = time.time() - ring_limit + 2.0
             time.sleep(_OUTCOME_POLL)
 
-    def _handle_state_change(self, extra: Dict[str, Any]) -> CallOutcome:
+    def _handle_state_change(self, extra: Dict[str, Any],
+                             appeared_at: Optional[float] = None) -> CallOutcome:
         """头部状态变化（离开响铃态）后的处理：区分接听/拒绝，按配置播放语音提醒。
 
         区分方法（无 OCR 的稳定启发式）：
@@ -593,6 +634,11 @@ class CallExecutor:
         - 对方接听：通话窗口保持存在（通话中），可自动播放语音提醒后挂断
         """
         m = self.config.media
+        elapsed_base = appeared_at if appeared_at is not None else time.time()
+
+        def _elapsed() -> float:
+            return round(time.time() - elapsed_base, 1)
+
         # 最多等 3.5s：窗口仍存在 => 已接听（通话中）；消失 => 已拒绝/取消
         deadline = time.time() + 3.5
         win = None
@@ -605,13 +651,13 @@ class CallExecutor:
         if win is None:
             logger.info("状态变化后通话窗口已关闭，判定：对方已拒绝（已触达）")
             extra = {**extra, "outcome": "对方已拒绝（已触达）"}
-            return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+            return CallOutcome(OUTCOME_TERMINAL, _elapsed(), extra)
 
         # 对方已接听
         if not m.speak_on_answer:
             logger.info("对方已接听（通话窗口保持），触达成功")
             extra = {**extra, "outcome": "对方已接听（通话中）", "answered": True}
-            return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+            return CallOutcome(OUTCOME_TERMINAL, _elapsed(), extra)
 
         spoke = self._speak_reminder()
         if spoke and m.hangup_after_speak:
@@ -624,17 +670,17 @@ class CallExecutor:
                     time.sleep(_OUTCOME_POLL)
             logger.info("语音提醒播放完成，已自动挂断")
             extra = {**extra, "outcome": "对方已接听，语音提醒已播放", "answered": True, "voice_played": True}
-            return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+            return CallOutcome(OUTCOME_TERMINAL, _elapsed(), extra)
 
         if spoke:
             logger.info("语音提醒播放完成，按配置保持通话")
             extra = {**extra, "outcome": "对方已接听，语音提醒已播放（通话保持）", "answered": True, "voice_played": True}
-            return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+            return CallOutcome(OUTCOME_TERMINAL, _elapsed(), extra)
 
         # 播放失败（通常是未安装虚拟声卡）：保持通话，如实报告
         logger.warning("语音提醒播放失败（未检测到虚拟声卡输出设备？），通话保持")
         extra = {**extra, "outcome": "对方已接听，语音提醒播放失败", "answered": True, "voice_played": False}
-        return CallOutcome(OUTCOME_TERMINAL, 0.0, extra)
+        return CallOutcome(OUTCOME_TERMINAL, _elapsed(), extra)
 
     def _speak_reminder(self) -> bool:
         """向对方播放配置的提醒语音（SAPI 离线合成 -> 虚拟声卡 -> QQ 麦克风）。"""

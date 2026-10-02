@@ -265,8 +265,6 @@ def uninstall(yes: bool) -> None:
     click.echo("- 看门狗计划任务（若装过）：numalarm watchdog uninstall")
     click.echo("- Agent 长期记忆：numalarm 无法访问宿主的记忆系统，"
                "请在对话中让 Agent 删除其记忆里登记的 numalarm 约定与路径")
-    click.echo("- Agent 长期记忆：numalarm 无法访问宿主的记忆系统，"
-               "请在对话中让 Agent 删除其记忆里登记的 numalarm 约定与路径")
     click.echo("\n完成：除上述手动项外，设备无任何残留。")
 
 

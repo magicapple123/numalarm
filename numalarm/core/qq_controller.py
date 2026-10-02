@@ -54,7 +54,7 @@ class QQController:
         :raises QQNotRunningError: 热键与窗口查找均失败（可能未登录/标题不匹配）
         """
         # 1. 面板已存在（含最小化）：直接前置恢复，不按热键（避免热键把面板切没）
-        info = state_detector.activate_window(self.config.qq_window_title)
+        info = state_detector.activate_window(self.config.qq_window_title, process_name=self.config.qq_process_name)
         if info is not None:
             logger.info("QQ 主面板已在前台：%s", info["title"])
             return info
@@ -62,10 +62,11 @@ class QQController:
         # 2. 面板不可见（托盘/隐藏）：按全局热键唤起后再前置
         press_combo(self.config.hotkey.wake_panel)
         time.sleep(self.config.timing.action_wait)
-        info = state_detector.activate_window(self.config.qq_window_title)
+        info = state_detector.activate_window(self.config.qq_window_title, process_name=self.config.qq_process_name)
         if info is None:
             # 快捷键无效时兜底：继续按标题查找
-            info = state_detector.wait_window(self.config.qq_window_title, timeout=3.0)
+            info = state_detector.wait_window(self.config.qq_window_title, timeout=3.0,
+                                              process_name=self.config.qq_process_name)
         if info is None:
             raise QQNotRunningError(
                 "未能唤起 QQ 主面板（可能未登录，或 hotkey.wake_panel / qq_window_title 配置与 QQ 不匹配）"
@@ -88,7 +89,7 @@ class QQController:
         pag = self.pag()
 
         # 1. 前置主面板并确保其可见（最小化时会恢复）
-        panel = state_detector.activate_window(self.config.qq_window_title)
+        panel = state_detector.activate_window(self.config.qq_window_title, process_name=self.config.qq_process_name)
         if panel is None:
             raise TargetNotFoundError("未能前置 QQ 主面板，无法执行搜索")
 
@@ -124,11 +125,11 @@ class QQController:
 
         # 5. 定位聊天窗口：优先独立聊天窗口（标题含关键词）；
         #    QQ NT 可能在主面板内嵌打开会话，此时回落到主面板
-        chat = state_detector.activate_window(keyword)
+        chat = state_detector.activate_window(keyword, process_name=self.config.qq_process_name)
         if chat is not None:
             logger.info("聊天窗口已打开：%s", chat["title"])
             return chat
-        panel = state_detector.activate_window(self.config.qq_window_title)
+        panel = state_detector.activate_window(self.config.qq_window_title, process_name=self.config.qq_process_name)
         if panel is None:
             raise TargetNotFoundError(f"未找到目标「{keyword}」对应的聊天窗口，请确认昵称/备注或别名配置")
         logger.info("未检测到独立聊天窗口，使用主面板内嵌会话：%s", panel["title"])
