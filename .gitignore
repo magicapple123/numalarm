@@ -18,3 +18,7 @@ logs/
 # IDE
 .idea/
 .vscode/
+
+# 图标设计过程文件（成品见 assets/numalarm_icon_*.png 与 numalarm.ico）
+assets/icon_candidates/
+assets/icon_preview.png

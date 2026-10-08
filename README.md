@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/numalarm_icon_256.png" width="128" alt="牛马铃 logo">
+</p>
+
 # 牛马铃（numalarm）
 
 [![CI](https://github.com/magicapple123/numalarm/actions/workflows/ci.yml/badge.svg)](https://github.com/magicapple123/numalarm/actions/workflows/ci.yml)
